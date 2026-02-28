@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # ── n8n ─────────────────────────────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n-claw
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-changeme_32chars_minimum_length!}
+      - GENERIC_TIMEZONE=${TIMEZONE:-Europe/Berlin}
+      - N8N_LOG_LEVEL=info
+      # Optional: disable basic auth if behind reverse proxy
+      # - N8N_BASIC_AUTH_ACTIVE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - n8n-claw-net
+
+  # ── PostgreSQL (for Supabase) ───────────────────────────────
+  db:
+    image: supabase/postgres:15.8.1.085
+    container_name: n8n-claw-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./supabase/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - n8n-claw-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Supabase REST API (PostgREST) ───────────────────────────
+  rest:
+    image: postgrest/postgrest:v14.5
+    container_name: n8n-claw-rest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD:-changeme}@db:5432/postgres
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET:-your-super-secret-jwt-token-min-32-chars}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - n8n-claw-net
+
+  # ── Kong (API Gateway — routes /rest/v1 to PostgREST) ──────
+  kong:
+    image: kong:2.8.1
+    container_name: n8n-claw-kong
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+    volumes:
+      - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
+    depends_on:
+      - rest
+    networks:
+      - n8n-claw-net
+
+volumes:
+  n8n_data:
+  db_data:
+
+networks:
+  n8n-claw-net:
+    driver: bridge

@@ -1,0 +1,35 @@
+_format_version: "1.1"
+
+services:
+  - name: rest-v1
+    url: http://rest:3000/
+    routes:
+      - name: rest-v1-all
+        strip_path: true
+        paths:
+          - /rest/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - anon
+            - service_role
+
+consumers:
+  - username: anon
+    keyauth_credentials:
+      - key: "{{SUPABASE_ANON_KEY}}"
+    acls:
+      - group: anon
+
+  - username: service_role
+    keyauth_credentials:
+      - key: "{{SUPABASE_SERVICE_KEY}}"
+    acls:
+      - group: service_role
+      - group: anon
