@@ -285,10 +285,14 @@ TELEGRAM_CRED_ID=$(create_cred "Telegram Bot" "telegramApi" "{\"accessToken\":\"
 echo "  ✅ Telegram Bot → ${TELEGRAM_CRED_ID}"
 
 POSTGRES_CRED_ID=$(create_cred "Supabase Postgres" "postgres" \
-  "{\"host\":\"db\",\"database\":\"postgres\",\"user\":\"postgres\",\"password\":\"${POSTGRES_PASSWORD}\",\"port\":5432,\"ssl\":false,\"allowUnauthorizedCerts\":true}")
-[ "$POSTGRES_CRED_ID" = "ERR" ] || [ -z "$POSTGRES_CRED_ID" ] && \
-  echo -e "  ${YELLOW}⚠️  Postgres credential failed — optional, workflows still work${NC}" || \
+  "{\"host\":\"db\",\"database\":\"postgres\",\"user\":\"postgres\",\"password\":\"${POSTGRES_PASSWORD}\",\"port\":5432,\"ssl\":\"disable\",\"allowUnauthorizedCerts\":true,\"sshTunnel\":false,\"sshAuthenticateWith\":\"password\"}")
+if [ -z "$POSTGRES_CRED_ID" ] || [[ "$POSTGRES_CRED_ID" == *"ERR"* ]]; then
+  echo -e "  ${RED}❌ Postgres credential failed — agent cannot start without it${NC}"
+  echo -e "     Add manually: Settings → Credentials → New → Postgres"
+  echo -e "     Host: db, DB: postgres, User: postgres, Password: ${POSTGRES_PASSWORD}"
+else
   echo "  ✅ Supabase Postgres → ${POSTGRES_CRED_ID}"
+fi
 
 # ── 10. Prepare + import workflows ──────────────────────────
 echo -e "\n${GREEN}📦 Importing workflows...${NC}"
@@ -306,6 +310,7 @@ for f in workflows/*.json; do
     -e "s|{{TELEGRAM_CHAT_ID}}|${TELEGRAM_CHAT_ID}|g" \
     -e "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Anthropic API\"|${ANTHROPIC_CRED_ID}\", \"name\": \"Anthropic API\"|g" \
     -e "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Telegram Bot\"|${TELEGRAM_CRED_ID}\", \"name\": \"Telegram Bot\"|g" \
+    -e "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Supabase Postgres\"|${POSTGRES_CRED_ID}\", \"name\": \"Supabase Postgres\"|g" \
     "$f" > "$out"
 done
 
