@@ -432,7 +432,7 @@ fi
 N8N_URL_FOR_MCP="${DOMAIN:+https://$DOMAIN}"
 N8N_URL_FOR_MCP="${N8N_URL_FOR_MCP:-http://localhost:5678}"
 
-PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres > /dev/null 2>&1 <<SQL
+PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres 2>&1 <<SQL
 INSERT INTO public.soul (key, content) VALUES
   ('name', '${BOT_NAME}'),
   ('persona', 'You are ${BOT_NAME}, a helpful AI assistant for ${USER_DISPLAY}. Preferred language: ${LANG}. Communication style: ${STYLE}'),
@@ -473,30 +473,58 @@ NOTE: After build, manually deactivate + activate the workflow in n8n UI (webhoo
 - Wetter: ${N8N_URL_FOR_MCP}/mcp/wetter (tool: get_weather, param: city)')
 ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;
 SQL
-echo -e "  ${GREEN}✅ Agent configured as '${BOT_NAME}', user '${USER_DISPLAY}'${NC}"
+# Verify soul was written
+SOUL_COUNT=$(PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres -t -c "SELECT COUNT(*) FROM soul" 2>/dev/null | tr -d ' ')
+if [ "${SOUL_COUNT:-0}" -gt 0 ]; then
+  echo -e "  ${GREEN}✅ Agent configured as '${BOT_NAME}', user '${USER_DISPLAY}' (${SOUL_COUNT} soul rows)${NC}"
+else
+  echo -e "  ${RED}❌ Soul table empty — DB write failed. Check postgres connection.${NC}"
+fi
 
 # ── Done ─────────────────────────────────────────────────────
 PUBLIC_IP=$(curl -s --max-time 3 https://api.ipify.org 2>/dev/null || echo "YOUR-VPS-IP")
 N8N_FINAL_URL=${DOMAIN:+https://$DOMAIN}
 N8N_FINAL_URL=${N8N_FINAL_URL:-http://$PUBLIC_IP:5678}
+STUDIO_URL="http://${PUBLIC_IP}:3001"
 
 echo ""
 echo -e "${GREEN}🎉 Setup complete!${NC}"
 echo "=============================="
 echo ""
-echo "  n8n:  ${N8N_FINAL_URL}"
+echo -e "  ${GREEN}URLs:${NC}"
+echo "    n8n:             ${N8N_FINAL_URL}"
+echo "    Supabase Studio: ${STUDIO_URL}"
 echo ""
-echo "  Next steps:"
+echo -e "  ${GREEN}Supabase credentials:${NC}"
+echo "    Host:     localhost:5432"
+echo "    DB:       postgres"
+echo "    User:     postgres"
+echo "    Password: ${POSTGRES_PASSWORD}"
+echo "    Anon Key: ${SUPABASE_ANON_KEY:0:40}..."
+echo ""
+if [ "$POSTGRES_CRED_ID" = "REPLACE_WITH_YOUR_CREDENTIAL_ID" ]; then
+echo -e "  ${YELLOW}⚠️  Manual step required — Postgres credential:${NC}"
+echo "    n8n UI → Settings → Credentials → New → Postgres"
+echo "    Name: Supabase Postgres"
+echo "    Host: db  |  DB: postgres  |  User: postgres"
+echo "    Password: ${POSTGRES_PASSWORD}  |  SSL: disable"
+echo ""
+fi
+echo -e "  ${GREEN}Next steps:${NC}"
 echo "    1. Open ${N8N_FINAL_URL}"
+if [ "$POSTGRES_CRED_ID" = "REPLACE_WITH_YOUR_CREDENTIAL_ID" ]; then
+echo "    2. Add Postgres credential (details above)"
+echo "    3. Add Anthropic API credential:"
+else
 echo "    2. Add Anthropic API credential:"
-echo "       Settings → Credentials → New → Anthropic API → paste your API key"
-echo "       (name it exactly: 'Anthropic API')"
-echo "    3. Activate workflows in n8n UI:"
+fi
+echo "       Settings → Credentials → New → Anthropic API"
+echo "       Name: 'Anthropic API'  |  Key: your key"
+echo "    4. Activate workflows:"
 echo "       → 🤖 n8n-claw Agent  (ID: ${WF_IDS['n8n-claw-agent']})"
 echo "       → 🏗️  MCP Builder    (ID: ${WF_IDS['mcp-builder']})"
-echo "    4. Message your Telegram bot — it's ready!"
+echo "    5. Message your Telegram bot!"
 echo ""
 if [ -z "$DOMAIN" ]; then
-echo -e "  ${YELLOW}HTTPS tip: Point a domain to this server IP (${PUBLIC_IP})"
-echo -e "  then re-run: DOMAIN=n8n.yourdomain.com ./setup.sh${NC}"
+echo -e "  ${YELLOW}HTTPS: Point a domain here → re-run: DOMAIN=n8n.yourdomain.com ./setup.sh${NC}"
 fi
