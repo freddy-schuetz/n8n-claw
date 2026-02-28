@@ -236,7 +236,7 @@ for f in workflows/*.json; do
     -e "s|{{N8N_URL}}|${N8N_URL:-http://localhost:5678}|g" \
     -e "s|{{N8N_INTERNAL_URL}}|http://172.17.0.1:5678|g" \
     -e "s|{{N8N_API_KEY}}|${N8N_API_KEY}|g" \
-    -e "s|{{SUPABASE_URL}}|http://localhost:8000|g" \
+    -e "s|{{SUPABASE_URL}}|http://172.17.0.1:8000|g" \
     -e "s|{{SUPABASE_SERVICE_KEY}}|${SUPABASE_SERVICE_KEY}|g" \
     -e "s|{{SUPABASE_ANON_KEY}}|${SUPABASE_ANON_KEY}|g" \
     -e "s|{{TELEGRAM_CHAT_ID}}|${TELEGRAM_CHAT_ID}|g" \
@@ -255,9 +255,14 @@ for name in $IMPORT_ORDER; do
   resp=$(curl -s -X POST "${N8N_BASE}/api/v1/workflows" \
     -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
     -H "Content-Type: application/json" -d @"$f")
-  wf_id=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id','ERR'))" 2>/dev/null)
-  WF_IDS[$name]=$wf_id
-  echo "  ✅ ${wf_name} → ${wf_id}"
+  wf_id=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+  if [ -z "$wf_id" ]; then
+    err=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','unknown error'))" 2>/dev/null)
+    echo -e "  ${RED}❌ ${wf_name}: ${err}${NC}"
+  else
+    WF_IDS[$name]=$wf_id
+    echo "  ✅ ${wf_name} → ${wf_id}"
+  fi
 done
 
 # ── 11. Wire setup wizard → n8n-claw agent ──────────────────────
