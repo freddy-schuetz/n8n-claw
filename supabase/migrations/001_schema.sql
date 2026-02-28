@@ -937,3 +937,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
+
+-- Setup wizard fields (added after initial schema)
+ALTER TABLE public.user_profiles
+  ADD COLUMN IF NOT EXISTS setup_done boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS setup_step integer DEFAULT 0;

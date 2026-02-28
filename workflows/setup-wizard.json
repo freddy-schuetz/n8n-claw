@@ -1,0 +1,180 @@
+{
+  "name": "🚀 Setup Wizard",
+  "settings": {},
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "id": "check-setup",
+      "name": "Check Setup Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        0
+      ],
+      "parameters": {
+        "jsCode": "\nconst msg = $input.first().json.message;\nconst chatId = String(msg.chat.id);\nconst text = msg.text || '';\n\n// Check if setup already done\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: '{{SUPABASE_URL}}/rest/v1/user_profiles?user_id=eq.telegram:' + chatId + '&select=setup_done',\n  headers: {\n    'apikey': '{{SUPABASE_SERVICE_KEY}}',\n    'Authorization': 'Bearer {{SUPABASE_SERVICE_KEY}}'\n  }\n});\n\nconst profile = Array.isArray(result) ? result[0] : null;\nconst setupDone = profile?.setup_done === true;\n\nreturn [{json: {chatId, text, setupDone, profile}}];\n"
+      }
+    },
+    {
+      "id": "if-setup-done",
+      "name": "Setup Done?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        512,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.setupDone }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "wizard-logic",
+      "name": "Wizard Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        200
+      ],
+      "parameters": {
+        "jsCode": "\nconst {chatId, text, profile} = $input.first().json;\nconst step = profile?.setup_step || 0;\n\nconst SUPA_URL = '{{SUPABASE_URL}}/rest/v1';\nconst SUPA_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst sHead = {'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal'};\n\nlet reply = '';\nlet nextStep = step;\n\nif (step === 0 || text === '/start') {\n  reply = `👋 Willkommen! Ich bin dein neuer KI-Assistent.\\n\\nLass uns kurz einrichten wer ich bin und wer du bist — dauert nur 2 Minuten.\\n\\n*Schritt 1/4:* Wie soll ich heißen?\\n_(z.B. \"Alex\", \"Kai\", \"Assistant\")_`;\n  nextStep = 1;\n} else if (step === 1) {\n  const botName = text.trim();\n  await helpers.httpRequest({method:'POST', url:SUPA_URL+'/soul?on_conflict=key', headers:sHead,\n    body:JSON.stringify({key:'name', content: botName})});\n  await helpers.httpRequest({method:'POST', url:SUPA_URL+'/soul?on_conflict=key', headers:sHead,\n    body:JSON.stringify({key:'persona', content:`Du bist ${botName}, ein hilfreicher KI-Assistent. Sprich locker und direkt. Keine Floskeln. Kurz, klar. Emojis sparsam.`})});\n  reply = `Super, ich bin jetzt *${botName}*! 🎉\\n\\n*Schritt 2/4:* Wie heißt du?`;\n  nextStep = 2;\n} else if (step === 2) {\n  const userName = text.trim();\n  await helpers.httpRequest({method:'POST', url:SUPA_URL+'/user_profiles?on_conflict=user_id', headers:{...sHead,'Prefer':'return=minimal'},\n    body:JSON.stringify({user_id:'telegram:'+chatId, name: userName.toLowerCase().replace(/\\s+/g,'_'), display_name: userName})});\n  reply = `Hallo *${userName}*! 👋\\n\\n*Schritt 3/4:* In welcher Sprache soll ich hauptsächlich antworten?\\n_(z.B. \"Deutsch\", \"English\", \"Français\")_`;\n  nextStep = 3;\n} else if (step === 3) {\n  const lang = text.trim();\n  await helpers.httpRequest({method:'POST', url:SUPA_URL+'/soul?on_conflict=key', headers:sHead,\n    body:JSON.stringify({key:'language', content: `Bevorzugte Sprache: ${lang}. Antworte immer auf ${lang} außer der User schreibt in einer anderen Sprache.`})});\n  reply = `Alles klar, ich antworte auf *${lang}*!\\n\\n*Schritt 4/4:* Kurz beschreiben wofür du mich nutzen möchtest:\\n_(z.B. \"Produktivität & Automatisierung\", \"Coding-Assistent\", \"Persönlicher Assistent\")_`;\n  nextStep = 4;\n} else if (step === 4) {\n  const context = text.trim();\n  await helpers.httpRequest({method:'PATCH', url:SUPA_URL+'/user_profiles?user_id=eq.telegram:'+chatId, headers:sHead,\n    body:JSON.stringify({context, setup_done: true, setup_step: 5})});\n  reply = `✅ *Setup abgeschlossen!*\\n\\nIch bin bereit! Schreib mir einfach was du brauchst.\\n\\nTipp: Ich kann auch neue Tools bauen — sag einfach \"Bau mir einen MCP Server für [API-Name]\"`;\n  nextStep = 5;\n}\n\n// Save step progress\nif (nextStep > 0 && nextStep < 5) {\n  await helpers.httpRequest({method:'POST', url:SUPA_URL+'/user_profiles?on_conflict=user_id', headers:{...sHead,'Prefer':'return=minimal'},\n    body:JSON.stringify({user_id:'telegram:'+chatId, setup_step: nextStep, setup_done: false})});\n}\n\nreturn [{json: {chatId, reply, done: nextStep === 5}}];\n"
+      }
+    },
+    {
+      "id": "send-wizard",
+      "name": "Send Wizard Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1024,
+        200
+      ],
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.reply }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "id": "forward-to-agent",
+      "name": "Forward to Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        768,
+        -200
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GREG_AGENT_ID",
+          "mode": "id"
+        },
+        "waitForSubWorkflow": false
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Setup Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Setup Done": {
+      "main": [
+        [
+          {
+            "node": "Setup Done?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Setup Done?": {
+      "main": [
+        [
+          {
+            "node": "Forward to Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wizard Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wizard Logic": {
+      "main": [
+        [
+          {
+            "node": "Send Wizard Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
