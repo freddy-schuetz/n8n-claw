@@ -284,12 +284,44 @@ create_cred() {
 TELEGRAM_CRED_ID=$(create_cred "Telegram Bot" "telegramApi" "{\"accessToken\":\"${TELEGRAM_BOT_TOKEN}\"}")
 echo "  ✅ Telegram Bot → ${TELEGRAM_CRED_ID}"
 
-POSTGRES_CRED_ID=$(create_cred "Supabase Postgres" "postgres" \
-  "{\"host\":\"db\",\"database\":\"postgres\",\"user\":\"postgres\",\"password\":\"${POSTGRES_PASSWORD}\",\"port\":5432,\"ssl\":\"disable\",\"allowUnauthorizedCerts\":true,\"sshTunnel\":false,\"sshAuthenticateWith\":\"password\"}")
-if [ -z "$POSTGRES_CRED_ID" ] || [[ "$POSTGRES_CRED_ID" == *"ERR"* ]]; then
-  echo -e "  ${RED}❌ Postgres credential failed — agent cannot start without it${NC}"
-  echo -e "     Add manually: Settings → Credentials → New → Postgres"
-  echo -e "     Host: db, DB: postgres, User: postgres, Password: ${POSTGRES_PASSWORD}"
+# Postgres credential via n8n CLI (only way that works reliably)
+CRED_JSON=$(cat <<CREDJSON
+{
+  "name": "Supabase Postgres",
+  "type": "postgres",
+  "data": {
+    "host": "db",
+    "database": "postgres",
+    "user": "postgres",
+    "password": "${POSTGRES_PASSWORD}",
+    "port": 5432,
+    "ssl": "disable",
+    "allowUnauthorizedCerts": true,
+    "sshTunnel": false,
+    "sshAuthenticateWith": "password"
+  }
+}
+CREDJSON
+)
+echo "$CRED_JSON" > /tmp/pg-cred.json
+POSTGRES_CRED_ID=$(docker compose run --rm -T n8n \
+  n8n import:credentials --input=/tmp/pg-cred.json 2>/dev/null | \
+  grep -oP '(?<=ID )\S+' | tail -1)
+
+# Fallback: try REST API with stringified data
+if [ -z "$POSTGRES_CRED_ID" ]; then
+  POSTGRES_CRED_ID=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
+    -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"Supabase Postgres\",\"type\":\"postgres\",\"data\":{\"host\":\"db\",\"database\":\"postgres\",\"user\":\"postgres\",\"password\":\"${POSTGRES_PASSWORD}\",\"port\":5432,\"ssl\":\"disable\",\"allowUnauthorizedCerts\":true,\"sshTunnel\":false,\"sshAuthenticateWith\":\"password\"}}" | \
+    python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+fi
+
+if [ -z "$POSTGRES_CRED_ID" ]; then
+  echo -e "  ${YELLOW}⚠️  Postgres credential — add manually in n8n UI:${NC}"
+  echo -e "     Settings → Credentials → New → Postgres"
+  echo -e "     Host: db  |  DB: postgres  |  User: postgres  |  Password: ${POSTGRES_PASSWORD}"
+  POSTGRES_CRED_ID="REPLACE_WITH_YOUR_CREDENTIAL_ID"
 else
   echo "  ✅ Supabase Postgres → ${POSTGRES_CRED_ID}"
 fi
