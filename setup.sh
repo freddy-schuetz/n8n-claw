@@ -191,11 +191,11 @@ TIMEZONE=${TIMEZONE:-Europe/Berlin} \
 
 echo "  Waiting for database (up to 60s on first start)..."
 for i in {1..60}; do
-  PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -p 5432 -U postgres -d postgres -c "SELECT 1" > /dev/null 2>&1 && break
+  LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -p 5432 -U postgres -d postgres -c "SELECT 1" > /dev/null 2>&1 && break
   sleep 2; echo -n "."
 done
 echo ""
-if ! PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -p 5432 -U postgres -d postgres -c "SELECT 1" > /dev/null 2>&1; then
+if ! LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -p 5432 -U postgres -d postgres -c "SELECT 1" > /dev/null 2>&1; then
   echo -e "${RED}❌ Database failed to start. Check: docker logs n8n-claw-db${NC}"
   exit 1
 fi
@@ -265,7 +265,7 @@ fi
 
 # ── 9. Apply DB schema ───────────────────────────────────────
 echo -e "\n${GREEN}🗄️  Applying database schema...${NC}"
-PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres \
+LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres \
   -f supabase/migrations/001_schema.sql > /dev/null 2>&1
 echo "  ✅ Schema applied"
 
@@ -432,49 +432,75 @@ fi
 N8N_URL_FOR_MCP="${DOMAIN:+https://$DOMAIN}"
 N8N_URL_FOR_MCP="${N8N_URL_FOR_MCP:-http://localhost:5678}"
 
-PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres 2>&1 <<SQL
+# Use python to build safe SQL (avoids shell quoting/locale issues)
+python3 - <<PYEOF
+import subprocess, os
+
+pw = os.environ.get('POSTGRES_PASSWORD', '')
+env = {**os.environ, 'PGPASSWORD': pw, 'LANG': 'C', 'LC_ALL': 'C'}
+
+def esc(s):
+    return s.replace("'", "''")
+
+bot     = esc('${BOT_NAME}')
+user    = esc('${USER_DISPLAY}')
+lang    = esc('${LANG}')
+style   = esc('${STYLE}')
+proact  = esc('${PROACTIVE}')
+ctx     = esc('${CTX}')
+chat_id = '${TELEGRAM_CHAT_ID}'
+mcp_url = '${N8N_URL_FOR_MCP}'
+uname   = user.lower().replace(' ', '_')
+
+sql = f"""
 INSERT INTO public.soul (key, content) VALUES
-  ('name', '${BOT_NAME}'),
-  ('persona', 'You are ${BOT_NAME}, a helpful AI assistant for ${USER_DISPLAY}. Preferred language: ${LANG}. Communication style: ${STYLE}'),
-  ('vibe', '${STYLE}'),
-  ('proactive', '${PROACTIVE}'),
-  ('boundaries', 'Keep private data private. Ask before sending emails, tweets, or any public posts.'),
-  ('communication', 'You communicate via Telegram. Reply directly in the conversation. The user'\''s chat ID is in the message.')
+  ('name', '{bot}'),
+  ('persona', 'You are {bot}, a helpful AI assistant for {user}. Preferred language: {lang}. {style}'),
+  ('vibe', '{style}'),
+  ('proactive', '{proact}'),
+  ('boundaries', 'Keep private data private. Ask before external actions.'),
+  ('communication', 'You communicate via Telegram. Reply directly.')
 ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;
 
 INSERT INTO public.user_profiles (user_id, name, display_name, timezone, context, setup_done, setup_step)
-VALUES ('telegram:${TELEGRAM_CHAT_ID}',
-        '${USER_DISPLAY,,}',
-        '${USER_DISPLAY}',
-        'UTC',
-        '${CTX}',
-        true, 5)
+VALUES ('telegram:{chat_id}', '{uname}', '{user}', 'UTC', '{ctx}', true, 5)
 ON CONFLICT (user_id) DO UPDATE SET
-  display_name = EXCLUDED.display_name,
-  context = EXCLUDED.context,
-  setup_done = true;
+  display_name = EXCLUDED.display_name, context = EXCLUDED.context, setup_done = true;
 
-INSERT INTO public.mcp_registry (server_name, path, mcp_url, description, tools, active) VALUES
-  ('Wetter', 'wetter', '${N8N_URL_FOR_MCP}/mcp/wetter', 'Weather via Open-Meteo', ARRAY['get_weather'], true)
+INSERT INTO public.mcp_registry (server_name, path, mcp_url, description, tools, active)
+VALUES ('Wetter', 'wetter', '{mcp_url}/mcp/wetter', 'Weather via Open-Meteo', ARRAY['get_weather'], true)
 ON CONFLICT (path) DO UPDATE SET active = true;
+"""
 
+result = subprocess.run(
+    ['psql', '-h', 'localhost', '-U', 'postgres', '-d', 'postgres'],
+    input=sql, capture_output=True, text=True, env=env
+)
+if result.returncode != 0:
+    print('SQL ERROR:', result.stderr[:300])
+    exit(1)
+PYEOF
+
+python3 - <<PYEOF2
+import subprocess, os
+pw = os.environ.get('POSTGRES_PASSWORD', '')
+env = {**os.environ, 'PGPASSWORD': pw, 'LANG': 'C', 'LC_ALL': 'C'}
+mcp_url = '${N8N_URL_FOR_MCP}'
+sql = f"""
 INSERT INTO public.agents (key, content) VALUES
-  ('mcp_instructions', 'You have MCP (Model Context Protocol) capabilities:
+  ('mcp_instructions', 'You have MCP capabilities:
 
-## MCP Client (mcp_client tool)
-Call tools on MCP servers. Parameters: mcp_url, tool_name, arguments (JSON object).
+MCP Client: call tools on MCP servers. Params: mcp_url, tool_name, arguments.
+MCP Builder: ALWAYS use for MCP servers, never WorkflowBuilder.
 
-## MCP Builder (mcp_builder tool)
-ALWAYS use this when user wants to build an MCP server or tool. Never use WorkflowBuilder for MCP.
-Parameter: task (description of what the MCP server should do).
-NOTE: After build, manually deactivate + activate the workflow in n8n UI (webhook bug).
-
-## Available MCP Servers:
-- Wetter: ${N8N_URL_FOR_MCP}/mcp/wetter (tool: get_weather, param: city)')
+Available: Wetter at {mcp_url}/mcp/wetter (tool: get_weather, param: city)')
 ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;
-SQL
+"""
+subprocess.run(['psql','-h','localhost','-U','postgres','-d','postgres'],
+  input=sql, capture_output=True, text=True, env=env)
+PYEOF2
 # Verify soul was written
-SOUL_COUNT=$(PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres -t -c "SELECT COUNT(*) FROM soul" 2>/dev/null | tr -d ' ')
+SOUL_COUNT=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres -t -c "SELECT COUNT(*) FROM soul" 2>/dev/null | tr -d ' ')
 if [ "${SOUL_COUNT:-0}" -gt 0 ]; then
   echo -e "  ${GREEN}✅ Agent configured as '${BOT_NAME}', user '${USER_DISPLAY}' (${SOUL_COUNT} soul rows)${NC}"
 else
