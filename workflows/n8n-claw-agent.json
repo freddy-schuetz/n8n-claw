@@ -260,7 +260,9 @@
           "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
           "name": "Supabase Postgres"
         }
-      }
+      },
+      "alwaysOutputData": true,
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -283,7 +285,9 @@
           "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
           "name": "Supabase Postgres"
         }
-      }
+      },
+      "alwaysOutputData": true,
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -306,7 +310,9 @@
           "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
           "name": "Supabase Postgres"
         }
-      }
+      },
+      "alwaysOutputData": true,
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -329,7 +335,9 @@
           "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
           "name": "Supabase Postgres"
         }
-      }
+      },
+      "alwaysOutputData": true,
+      "continueOnFail": true
     },
     {
       "parameters": {

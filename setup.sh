@@ -511,7 +511,7 @@ fi
 PUBLIC_IP=$(curl -s --max-time 3 https://api.ipify.org 2>/dev/null || echo "YOUR-VPS-IP")
 N8N_FINAL_URL=${DOMAIN:+https://$DOMAIN}
 N8N_FINAL_URL=${N8N_FINAL_URL:-http://$PUBLIC_IP:5678}
-STUDIO_URL="http://${PUBLIC_IP}:3001"
+ADMINER_URL="http://${PUBLIC_IP}:3001"
 
 echo ""
 echo -e "${GREEN}🎉 Setup complete!${NC}"
@@ -519,7 +519,8 @@ echo "=============================="
 echo ""
 echo -e "  ${GREEN}URLs:${NC}"
 echo "    n8n:             ${N8N_FINAL_URL}"
-echo "    Supabase Studio: ${STUDIO_URL}"
+echo "    DB Admin (Adminer): ${ADMINER_URL}"
+echo "    → System: PostgreSQL, Server: db, User: postgres"
 echo ""
 echo -e "  ${GREEN}Supabase credentials:${NC}"
 echo "    Host:     localhost:5432"
