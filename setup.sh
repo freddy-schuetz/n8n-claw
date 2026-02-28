@@ -289,6 +289,7 @@ create_cred() {
   echo "$result"
 }
 
+ANTHROPIC_CRED_ID="${ANTHROPIC_CRED_ID:-REPLACE_WITH_YOUR_CREDENTIAL_ID}"
 TELEGRAM_CRED_ID=$(create_cred "Telegram Bot" "telegramApi" "{\"accessToken\":\"${TELEGRAM_BOT_TOKEN}\"}")
 echo "  ✅ Telegram Bot → ${TELEGRAM_CRED_ID}"
 
@@ -337,6 +338,7 @@ else
 fi
 
 # ── 10. Prepare + import workflows ──────────────────────────
+set +e  # credential IDs might be empty, don't abort
 echo -e "\n${GREEN}📦 Importing workflows...${NC}"
 mkdir -p workflows/deployed
 
