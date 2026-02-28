@@ -16,8 +16,7 @@ services:
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-changeme_32chars_minimum_length!}
       - GENERIC_TIMEZONE=${TIMEZONE:-Europe/Berlin}
       - N8N_LOG_LEVEL=info
-      # Optional: disable basic auth if behind reverse proxy
-      # - N8N_BASIC_AUTH_ACTIVE=false
+      - N8N_SECURE_COOKIE=false
     volumes:
       - n8n_data:/home/node/.n8n
     networks:
