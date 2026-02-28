@@ -13,6 +13,7 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
       - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678}
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-changeme_32chars_minimum_length!}
       - GENERIC_TIMEZONE=${TIMEZONE:-Europe/Berlin}
       - N8N_LOG_LEVEL=info

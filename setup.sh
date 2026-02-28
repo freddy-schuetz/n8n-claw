@@ -273,21 +273,49 @@ done
 # ── 11. Wire setup wizard → n8n-claw agent ──────────────────────
 AGENT_ID=${WF_IDS['n8n-claw-agent']}
 WIZARD_ID=${WF_IDS['setup-wizard']}
-if [ -n "$AGENT_ID" ] && [ "$AGENT_ID" != "ERR" ]; then
-  curl -s "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}" \
-    -H "X-N8N-API-KEY: ${N8N_API_KEY}" | \
-  python3 -c "
-import sys,json
-wf=json.load(sys.stdin)
-s=json.dumps(wf).replace('REPLACE_WITH_GREG_AGENT_ID','${AGENT_ID}')
-d=json.loads(s)
-print(json.dumps({'name':d['name'],'nodes':d.get('nodes',d.get('activeVersion',{}).get('nodes',[])),'connections':d.get('connections',{}),'settings':d.get('settings',{})}))
-" | curl -s -X PUT "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}" \
-    -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
-    -H "Content-Type: application/json" -d @- > /dev/null
-  curl -s -X POST "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}/activate" \
-    -H "X-N8N-API-KEY: ${N8N_API_KEY}" > /dev/null
-  echo -e "\n  ${GREEN}✅ Setup Wizard wired + activated${NC}"
+if [ -n "$AGENT_ID" ] && [ "$AGENT_ID" != "" ]; then
+  # Fetch wizard, replace placeholder, PUT back
+  WIZARD_JSON=$(curl -s "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}" \
+    -H "X-N8N-API-KEY: ${N8N_API_KEY}")
+
+  WIZARD_PATCHED=$(echo "$WIZARD_JSON" | python3 -c "
+import sys, json
+raw = sys.stdin.read()
+raw = raw.replace('REPLACE_WITH_GREG_AGENT_ID', '${AGENT_ID}')
+wf = json.loads(raw)
+nodes = wf.get('nodes') or wf.get('activeVersion', {}).get('nodes', [])
+connections = wf.get('connections') or wf.get('activeVersion', {}).get('connections', {})
+print(json.dumps({'name': wf['name'], 'nodes': nodes, 'connections': connections, 'settings': wf.get('settings', {})}))
+" 2>&1)
+
+  if echo "$WIZARD_PATCHED" | python3 -c "import sys,json; json.load(sys.stdin)" > /dev/null 2>&1; then
+    echo "$WIZARD_PATCHED" | curl -s -X PUT "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}" \
+      -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
+      -H "Content-Type: application/json" -d @- > /dev/null
+
+    # Set WEBHOOK_URL to public HTTP URL before activating
+  PUBLIC_IP_NOW=$(curl -s --max-time 3 https://api.ipify.org 2>/dev/null || echo "localhost")
+  WEBHOOK_URL_NOW="http://${PUBLIC_IP_NOW}:5678"
+  grep -q "^N8N_WEBHOOK_URL=" .env && sed -i "s|^N8N_WEBHOOK_URL=.*|N8N_WEBHOOK_URL=${WEBHOOK_URL_NOW}|" .env || echo "N8N_WEBHOOK_URL=${WEBHOOK_URL_NOW}" >> .env
+  # Restart n8n with correct webhook URL
+  N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
+  SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET N8N_WEBHOOK_URL=$WEBHOOK_URL_NOW \
+  N8N_HOST=${PUBLIC_IP_NOW} N8N_PROTOCOL=http N8N_SECURE_COOKIE=false \
+    docker compose up -d n8n > /dev/null 2>&1
+  sleep 5
+
+  ACTIVATE_RESP=$(curl -s -X POST "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}/activate" \
+      -H "X-N8N-API-KEY: ${N8N_API_KEY}")
+    ACTIVATE_ERR=$(echo "$ACTIVATE_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null)
+    if [ -n "$ACTIVATE_ERR" ]; then
+      echo -e "  ${YELLOW}⚠️  Setup Wizard wired but not activated: ${ACTIVATE_ERR}${NC}"
+      echo -e "  ${YELLOW}   Activate manually in n8n UI (ID: ${WIZARD_ID})${NC}"
+    else
+      echo -e "\n  ${GREEN}✅ Setup Wizard wired + activated (ID: ${WIZARD_ID})${NC}"
+    fi
+  else
+    echo -e "  ${RED}❌ Wiring failed: ${WIZARD_PATCHED}${NC}"
+  fi
 fi
 
 # ── 12. Seed DB ──────────────────────────────────────────────
