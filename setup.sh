@@ -7,11 +7,39 @@ set -e
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
 if [ ! -f .env ]; then
-  echo -e "${RED}❌ .env not found. Copy .env.example to .env and fill in your values.${NC}"
-  exit 1
+  cp .env.example .env
+  echo -e "${YELLOW}📝 .env created from .env.example${NC}"
+  echo ""
+  echo "Please fill in these required values in .env:"
+  echo "  ANTHROPIC_API_KEY   → your Anthropic API key"
+  echo "  TELEGRAM_BOT_TOKEN  → from @BotFather on Telegram"
+  echo "  TELEGRAM_CHAT_ID    → your Telegram user ID (get it from @userinfobot)"
+  echo "  N8N_API_KEY         → generate in n8n UI after first start"
+  echo ""
+  echo "Then run: ./setup.sh again"
+  echo ""
+  echo -e "${YELLOW}Tip: Start n8n first to get your API key:${NC}"
+  echo "  docker compose up -d n8n"
+  echo "  open http://localhost:5678 → Settings → API → Create key"
+  exit 0
 fi
 
 source .env
+
+# Validate required vars
+MISSING=()
+[ -z "$N8N_API_KEY" ] || [ "$N8N_API_KEY" = "your_n8n_api_key" ] && MISSING+=("N8N_API_KEY")
+[ -z "$ANTHROPIC_API_KEY" ] || [ "$ANTHROPIC_API_KEY" = "your_anthropic_key" ] && MISSING+=("ANTHROPIC_API_KEY")
+[ -z "$TELEGRAM_BOT_TOKEN" ] || [ "$TELEGRAM_BOT_TOKEN" = "your_bot_token" ] && MISSING+=("TELEGRAM_BOT_TOKEN")
+[ -z "$TELEGRAM_CHAT_ID" ] || [ "$TELEGRAM_CHAT_ID" = "your_chat_id" ] && MISSING+=("TELEGRAM_CHAT_ID")
+
+if [ ${#MISSING[@]} -gt 0 ]; then
+  echo -e "${RED}❌ Missing required values in .env:${NC}"
+  for v in "${MISSING[@]}"; do echo "   → $v"; done
+  echo ""
+  echo "Edit .env and run ./setup.sh again"
+  exit 1
+fi
 
 echo -e "${GREEN}🚀 n8n-claw Setup${NC}"
 echo "=============================="
