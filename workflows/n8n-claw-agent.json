@@ -255,12 +255,7 @@
         224,
         -16
       ],
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Supabase Postgres"
-        }
-      }
+      "credentials": {}
     },
     {
       "parameters": {
@@ -278,12 +273,7 @@
         448,
         -16
       ],
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Supabase Postgres"
-        }
-      }
+      "credentials": {}
     },
     {
       "parameters": {
@@ -301,12 +291,7 @@
         672,
         -16
       ],
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Supabase Postgres"
-        }
-      }
+      "credentials": {}
     },
     {
       "parameters": {
@@ -324,12 +309,7 @@
         896,
         -16
       ],
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Supabase Postgres"
-        }
-      }
+      "credentials": {}
     },
     {
       "parameters": {
@@ -419,12 +399,7 @@
         2928,
         -208
       ],
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Supabase Postgres"
-        }
-      }
+      "credentials": {}
     },
     {
       "parameters": {
@@ -442,12 +417,7 @@
         2928,
         176
       ],
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Supabase Postgres"
-        }
-      }
+      "credentials": {}
     },
     {
       "parameters": {

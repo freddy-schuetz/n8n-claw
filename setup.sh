@@ -310,7 +310,7 @@ for f in workflows/*.json; do
 done
 
 declare -A WF_IDS
-IMPORT_ORDER="mcp-client caldav-sub-workflow reminder-factory mcp-wetter-example workflow-builder mcp-builder setup-wizard n8n-claw-agent"
+IMPORT_ORDER="mcp-client caldav-sub-workflow reminder-factory mcp-wetter-example workflow-builder mcp-builder n8n-claw-agent"
 
 for name in $IMPORT_ORDER; do
   f="workflows/deployed/${name}.json"
@@ -329,68 +329,80 @@ for name in $IMPORT_ORDER; do
   fi
 done
 
-# ── 11. Wire setup wizard → n8n-claw agent ──────────────────────
+# ── 11. Activate agent ───────────────────────────────────────
 AGENT_ID=${WF_IDS['n8n-claw-agent']}
-WIZARD_ID=${WF_IDS['setup-wizard']}
-if [ -n "$AGENT_ID" ] && [ "$AGENT_ID" != "" ]; then
-  # Fetch wizard, replace placeholder, PUT back
-  WIZARD_JSON=$(curl -s "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}" \
-    -H "X-N8N-API-KEY: ${N8N_API_KEY}")
-
-  WIZARD_PATCHED=$(echo "$WIZARD_JSON" | python3 -c "
-import sys, json
-raw = sys.stdin.read()
-raw = raw.replace('REPLACE_WITH_GREG_AGENT_ID', '${AGENT_ID}')
-wf = json.loads(raw)
-nodes = wf.get('nodes') or wf.get('activeVersion', {}).get('nodes', [])
-connections = wf.get('connections') or wf.get('activeVersion', {}).get('connections', {})
-print(json.dumps({'name': wf['name'], 'nodes': nodes, 'connections': connections, 'settings': wf.get('settings', {})}))
-" 2>&1)
-
-  if echo "$WIZARD_PATCHED" | python3 -c "import sys,json; json.load(sys.stdin)" > /dev/null 2>&1; then
-    echo "$WIZARD_PATCHED" | curl -s -X PUT "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}" \
-      -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
-      -H "Content-Type: application/json" -d @- > /dev/null
-
-    # Activate agent FIRST (wizard depends on it)
+if [ -n "$AGENT_ID" ]; then
   AGENT_ACTIVATE=$(curl -s -X POST "${N8N_BASE}/api/v1/workflows/${AGENT_ID}/activate" \
     -H "X-N8N-API-KEY: ${N8N_API_KEY}")
   AGENT_ACT_ERR=$(echo "$AGENT_ACTIVATE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null)
   if [ -z "$AGENT_ACT_ERR" ]; then
     echo -e "  ${GREEN}✅ n8n-claw Agent activated${NC}"
   else
-    echo -e "  ${YELLOW}⚠️  Agent activation: ${AGENT_ACT_ERR}${NC}"
-  fi
-
-  sleep 5  # avoid Telegram rate limit on webhook registration
-  ACTIVATE_RESP=$(curl -s -X POST "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}/activate" \
-      -H "X-N8N-API-KEY: ${N8N_API_KEY}")
-    ACTIVATE_ERR=$(echo "$ACTIVATE_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null)
-    if [ -n "$ACTIVATE_ERR" ]; then
-      echo -e "  ${YELLOW}⚠️  Setup Wizard wired but not activated: ${ACTIVATE_ERR}${NC}"
-      echo -e "  ${YELLOW}   Activate manually in n8n UI (ID: ${WIZARD_ID})${NC}"
-    else
-      echo -e "\n  ${GREEN}✅ Setup Wizard wired + activated (ID: ${WIZARD_ID})${NC}"
-    fi
-  else
-    echo -e "  ${RED}❌ Wiring failed: ${WIZARD_PATCHED}${NC}"
+    echo -e "  ${YELLOW}⚠️  Agent activation: ${AGENT_ACT_ERR} — activate manually in n8n UI${NC}"
   fi
 fi
 
-# ── 12. Seed DB ──────────────────────────────────────────────
+# ── 12. Setup Wizard via CLI (no n8n workflow needed) ────────
+echo -e "\n${GREEN}🧙 Personalization setup${NC}"
+echo "────────────────────────────"
+echo "Let's configure your agent's personality."
+echo ""
+
+cli_ask() {
+  local prompt="$1" default="$2"
+  read -rp "  ${prompt} [${default}]: " val
+  echo "${val:-$default}"
+}
+
+BOT_NAME=$(cli_ask "Agent name" "Assistant")
+USER_DISPLAY=$(cli_ask "Your name" "User")
+LANG=$(cli_ask "Preferred language" "English")
+CTX=$(cli_ask "What will you use this agent for" "Personal assistant and automation")
+
+N8N_URL_FOR_MCP="${DOMAIN:+https://$DOMAIN}"
+N8N_URL_FOR_MCP="${N8N_URL_FOR_MCP:-http://localhost:5678}"
+
 PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres > /dev/null 2>&1 <<SQL
 INSERT INTO public.soul (key, content) VALUES
-  ('name','Assistant'),
-  ('persona','Du bist ein hilfreicher KI-Assistent. Sprich locker und direkt. Keine Floskeln. Kurz, klar.'),
-  ('vibe','Locker, direkt, hilfsbereit.'),
-  ('boundaries','Private Daten bleiben privat. Externe Aktionen nur nach Rückfrage.'),
-  ('communication','Du kommunizierst über Telegram. Antworte direkt.')
+  ('name', '${BOT_NAME}'),
+  ('persona', 'You are ${BOT_NAME}, a helpful AI assistant. Be concise and direct. No filler phrases. Preferred language: ${LANG}.'),
+  ('vibe', 'Direct, helpful, conversational. Like a competent colleague, not a chatbot.'),
+  ('boundaries', 'Keep private data private. Ask before external actions.'),
+  ('communication', 'You communicate via Telegram. Reply directly in the conversation.')
 ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;
+
+INSERT INTO public.user_profiles (user_id, name, display_name, timezone, context, setup_done, setup_step)
+VALUES ('telegram:${TELEGRAM_CHAT_ID}',
+        '${USER_DISPLAY,,}',
+        '${USER_DISPLAY}',
+        'UTC',
+        '${CTX}',
+        true, 5)
+ON CONFLICT (user_id) DO UPDATE SET
+  display_name = EXCLUDED.display_name,
+  context = EXCLUDED.context,
+  setup_done = true;
+
 INSERT INTO public.mcp_registry (server_name, path, mcp_url, description, tools, active) VALUES
-  ('Wetter','wetter','http://localhost:5678/mcp/wetter','Wetter via Open-Meteo',ARRAY['get_weather'],true)
+  ('Wetter', 'wetter', '${N8N_URL_FOR_MCP}/mcp/wetter', 'Weather via Open-Meteo', ARRAY['get_weather'], true)
 ON CONFLICT (path) DO UPDATE SET active = true;
+
+INSERT INTO public.agents (key, content) VALUES
+  ('mcp_instructions', 'You have MCP (Model Context Protocol) capabilities:
+
+## MCP Client (mcp_client tool)
+Call tools on MCP servers. Parameters: mcp_url, tool_name, arguments (JSON object).
+
+## MCP Builder (mcp_builder tool)
+ALWAYS use this when user wants to build an MCP server or tool. Never use WorkflowBuilder for MCP.
+Parameter: task (description of what the MCP server should do).
+NOTE: After build, manually deactivate + activate the workflow in n8n UI (webhook bug).
+
+## Available MCP Servers:
+- Wetter: ${N8N_URL_FOR_MCP}/mcp/wetter (tool: get_weather, param: city)')
+ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;
 SQL
-echo -e "  ${GREEN}✅ Database seeded${NC}"
+echo -e "  ${GREEN}✅ Agent configured as '${BOT_NAME}', user '${USER_DISPLAY}'${NC}"
 
 # ── Done ─────────────────────────────────────────────────────
 PUBLIC_IP=$(curl -s --max-time 3 https://api.ipify.org 2>/dev/null || echo "YOUR-VPS-IP")
@@ -406,15 +418,14 @@ echo ""
 echo "  Next steps:"
 echo "    1. Open ${N8N_FINAL_URL}"
 echo "    2. Add Anthropic API credential:"
-echo "       Settings → Credentials → New → Anthropic → paste your API key"
-echo "    3. Activate workflows:"
+echo "       Settings → Credentials → New → Anthropic API → paste your API key"
+echo "       (name it exactly: 'Anthropic API')"
+echo "    3. Activate workflows in n8n UI:"
 echo "       → 🤖 n8n-claw Agent  (ID: ${WF_IDS['n8n-claw-agent']})"
 echo "       → 🏗️  MCP Builder    (ID: ${WF_IDS['mcp-builder']})"
-echo "       → 🚀 Setup Wizard    (ID: ${WF_IDS['setup-wizard']})"
+echo "    4. Message your Telegram bot — it's ready!"
 echo ""
-echo "    4. Send /start to your Telegram bot → Setup Wizard runs!"
 if [ -z "$DOMAIN" ]; then
-echo ""
-echo -e "  ${YELLOW}HTTPS tip: For Telegram webhooks, point a domain to this server"
+echo -e "  ${YELLOW}HTTPS tip: Point a domain to this server IP (${PUBLIC_IP})"
 echo -e "  then re-run: DOMAIN=n8n.yourdomain.com ./setup.sh${NC}"
 fi
