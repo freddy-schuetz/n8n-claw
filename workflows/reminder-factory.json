@@ -1,0 +1,125 @@
+{
+  "name": "ReminderFactory",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "42377cce-a5b6-416d-8ad9-28b881df1721"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nlet time = '', message = 'Reminder!';\ntry {\n  const p = JSON.parse(raw.query || '{}');\n  time = p.time || '';\n  message = p.message || 'Reminder!';\n} catch(e) {\n  time = raw.time || '';\n  message = raw.message || 'Reminder!';\n}\ntime = (time || '').replace(/202[0-5]/, '2026');\nconst m = time.match(/T(\\d{2}):(\\d{2})/);\nconst h = m ? Number(m[1]) : 0;\nconst mi = m ? Number(m[2]) : 0;\n\nconst apiKey = '{{N8N_API_KEY}}';\nconst wf = {\n  name: 'Reminder ' + message.substring(0,30),\n  nodes: [\n    {\n      parameters: { rule: { interval: [{ triggerAtHour: h, triggerAtMinute: mi }] } },\n      name: 'Timer', type: 'n8n-nodes-base.scheduleTrigger', typeVersion: 1.2, position: [0, 0]\n    },\n    {\n      parameters: { chatId: '{{TELEGRAM_CHAT_ID}}', text: '\\u23f0 ' + message, additionalFields: {} },\n      name: 'Notify', type: 'n8n-nodes-base.telegram', typeVersion: 1.2, position: [220, 0],\n      credentials: { telegramApi: { id: 'xGr8rT1IIW1IP6n3', name: 'Telegram Bot' } }\n    },\n    {\n      parameters: {\n        method: 'POST',\n        url: '={{N8N_INTERNAL_URL}}/api/v1/workflows/{{$workflow.id}}/deactivate',\n        sendHeaders: true,\n        headerParameters: { parameters: [{ name: 'X-N8N-API-KEY', value: apiKey }] },\n        options: {}\n      },\n      name: 'Cleanup', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [440, 0]\n    }\n  ],\n  connections: {\n    Timer: { main: [[{ node: 'Notify', type: 'main', index: 0 }]] },\n    Notify: { main: [[{ node: 'Cleanup', type: 'main', index: 0 }]] }\n  },\n  settings: { executionOrder: 'v1' }\n};\nreturn [{ json: { body: wf, hour: h, minute: mi, msg: message } }];"
+      },
+      "name": "BuildWF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "4dfc0b5e-be14-403b-bec6-ddbc695f0a6c"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{N8N_INTERNAL_URL}}/api/v1/workflows",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "{{N8N_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "name": "CreateWF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "5b70e030-bc73-4373-8b24-32359aebe657"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{N8N_INTERNAL_URL}}/api/v1/workflows/{{ $json.id }}/activate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "{{N8N_API_KEY}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "ActivateWF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "65890105-eb7e-4e3d-b7a9-f8d67787faef"
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "BuildWF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildWF": {
+      "main": [
+        [
+          {
+            "node": "CreateWF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CreateWF": {
+      "main": [
+        [
+          {
+            "node": "ActivateWF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "meta": {
+    "n8n-greg-repo": true
+  }
+}

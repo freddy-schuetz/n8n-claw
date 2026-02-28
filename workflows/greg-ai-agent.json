@@ -1,0 +1,663 @@
+{
+  "name": "🤖 Greg AI Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -16
+      ],
+      "webhookId": "greg-agent-telegram",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT key, content FROM soul ORDER BY key",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "id": "load-soul",
+      "name": "Load Soul",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        -16
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT key, content FROM agents ORDER BY key",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "id": "load-agents",
+      "name": "Load Agents Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        448,
+        -16
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT name, display_name, timezone, preferences, context FROM user_profiles WHERE user_id = 'telegram:{{ $('Telegram Trigger').item.json.message.from.id }}' LIMIT 1",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "id": "load-user",
+      "name": "Load User Profile",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        672,
+        -16
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT role, content FROM conversations WHERE session_id = 'telegram:{{ $('Telegram Trigger').item.json.message.chat.id }}' ORDER BY created_at DESC LIMIT 20",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "id": "load-history",
+      "name": "Load Conversation History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        896,
+        -16
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build system prompt from loaded context\nconst soul = $('Load Soul').all().map(i => i.json);\nconst agents = $('Load Agents Config').all().map(i => i.json);\nconst user = $('Load User Profile').first()?.json || {};\nconst history = $('Load Conversation History').all().map(i => i.json);\nconst userMessage = $('Telegram Trigger').first().json.message.text || '';\nconst chatId = $('Telegram Trigger').first().json.message.chat.id;\nconst userId = $('Telegram Trigger').first().json.message.from.id;\n\n// Build soul text\nconst soulText = soul.map(s => `## ${s.key}\\n${s.content}`).join('\\n\\n');\nconst agentText = agents.map(a => `## ${a.key}\\n${a.content}`).join('\\n\\n');\nconst userText = user.display_name \n  ? `Name: ${user.display_name} (${user.name})\\nTimezone: ${user.timezone}\\nKontext: ${user.context}\\nPrefs: ${JSON.stringify(user.preferences)}`\n  : 'Unbekannter User';\n\n// Build conversation history\nconst historyText = history.reverse().map(h => `${h.role}: ${h.content}`).join('\\n');\n\nconst toolHint = `\\n\\n# WICHTIGE TOOLS\\n- WorkflowBuilder: Nutze dieses Tool um n8n Workflows zu erstellen. Wenn der User eine Integration, API-Anbindung oder Automatisierung braucht, rufe WorkflowBuilder auf statt nachzufragen. Gib alle Details (URLs, Credentials, Anforderungen) direkt weiter.\\n- Reminder: Erstellt zeitgesteuerte Erinnerungen.\\n- Memory Search/Save: Langzeitgedächtnis.\\n- HTTP Tool: Einfache GET requests (keine Auth).\\n- Self Modify: n8n Workflows auflisten/anzeigen.`;\n\nconst systemPrompt = `# SOUL\\n${soulText}\\n\\n# AGENT CONFIG\\n${agentText}\\n\\n# USER PROFILE\\n${userText}\\n\\n# RECENT CONVERSATION\\n${historyText}`;\n\nreturn [{\n  json: {\n    systemPrompt,\n    userMessage,\n    chatId: String(chatId),\n    userId: String(userId),\n    sessionId: `telegram:${chatId}`\n  }\n}];"
+      },
+      "id": "build-prompt",
+      "name": "Build System Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.userMessage }}",
+        "options": {
+          "systemMessage": "={{ $json.systemPrompt }}",
+          "maxIterations": 10
+        }
+      },
+      "id": "ai-agent",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1856,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-sonnet-4-6",
+          "mode": "list",
+          "cachedResultName": "Claude Sonnet 4.6"
+        },
+        "options": {
+          "maxTokensToSample": 4096,
+          "temperature": 0.7
+        }
+      },
+      "id": "claude-llm",
+      "name": "Claude",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        208
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Save conversation to Supabase\nconst userMessage = $('Build System Prompt').first().json.userMessage;\nconst assistantMessage = $('AI Agent').first().json.output;\nconst sessionId = $('Build System Prompt').first().json.sessionId;\nconst userId = $('Build System Prompt').first().json.userId;\n\nreturn [{\n  json: {\n    userMessage,\n    assistantMessage,\n    sessionId,\n    userId\n  }\n}];"
+      },
+      "id": "prepare-save",
+      "name": "Prepare Save",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations (session_id, user_id, role, content) VALUES ('{{ $json.sessionId }}', '{{ $json.userId }}', 'user', '{{ $json.userMessage.replace(/'/g, \"''\") }}'); INSERT INTO conversations (session_id, user_id, role, content) VALUES ('{{ $json.sessionId }}', '{{ $json.userId }}', 'assistant', '{{ $json.assistantMessage.replace(/'/g, \"''\") }}');",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "id": "save-conversation",
+      "name": "Save Conversation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2928,
+        -208
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO memory_daily (date, content, role, user_id) VALUES (CURRENT_DATE, '{{ ($json.userMessage + ' → ' + $json.assistantMessage).replace(/'/g, \"''\") }}', 'interaction', '{{ $json.userId }}')",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "id": "save-daily-log",
+      "name": "Save Daily Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2928,
+        176
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Build System Prompt').first().json.chatId }}",
+        "text": "={{ $('AI Agent').first().json.output }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-reply",
+      "name": "Telegram Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2928,
+        -16
+      ],
+      "webhookId": "9fd4b04d-2f65-4443-b507-51506f758a95",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Search long-term memory. Input: a search query string.",
+        "jsCode": "let input;\ntry { input = JSON.parse(query); } catch(e) { input = {search_query: query}; }\nconst searchQuery = input.search_query || input.query || query;\nconst result = await helpers.httpRequest({\n  method: 'POST',\n  url: '{{SUPABASE_URL}}/rest/v1/rpc/search_memory_keyword',\n  headers: {\n    'apikey': '{{SUPABASE_SERVICE_KEY}}',\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({search_query: searchQuery})\n});\nreturn JSON.stringify(result);"
+      },
+      "id": "tool-memory-search",
+      "name": "Memory Search",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.2,
+      "position": [
+        1472,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Save important info to long-term memory. Input: JSON with content (string), category (general/decision/preference/contact/project), importance (1-10).",
+        "jsCode": "let input;\ntry { input = JSON.parse(query); } catch(e) { input = {content: query}; }\nconst result = await helpers.httpRequest({\n  method: 'POST',\n  url: '{{SUPABASE_URL}}/rest/v1/memory_long',\n  headers: {\n    'apikey': '{{SUPABASE_SERVICE_KEY}}',\n    'Content-Type': 'application/json',\n    'Prefer': 'return=representation'\n  },\n  body: JSON.stringify({content: input.content||query, category: input.category||'general', importance: input.importance||5, metadata:{source:'agent'}})\n});\nreturn JSON.stringify({success:true, saved: input.content||query});"
+      },
+      "id": "tool-memory-save",
+      "name": "Memory Save",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.2,
+      "position": [
+        1600,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Make HTTP requests. Input: JSON with url (string) and optional method (GET/POST).",
+        "jsCode": "let input;\ntry { input = JSON.parse(query); } catch(e) { input = {url: query}; }\nif (!input.url) return 'Fehler: url ist Pflicht';\nconst result = await helpers.httpRequest({\n  method: input.method || 'GET',\n  url: input.url,\n  headers: input.headers || {}\n});\nreturn typeof result === 'string' ? result.substring(0,4000) : JSON.stringify(result).substring(0,4000);"
+      },
+      "id": "tool-http",
+      "name": "HTTP Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.2,
+      "position": [
+        1728,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "description": "List or manage n8n workflows. Input: JSON with action (list/get/create) and optional workflowId.",
+        "jsCode": "let input;\ntry { input = JSON.parse(query); } catch(e) { input = {action:'list'}; }\nconst apiKey = '{{N8N_API_KEY}}';\nconst hdrs = {'X-N8N-API-KEY': apiKey, 'Content-Type': 'application/json'};\nlet result;\nif (input.action === 'list') {\n  result = await helpers.httpRequest({method:'GET', url:'{{N8N_INTERNAL_URL}}/api/v1/workflows', headers: hdrs});\n} else if (input.action === 'get' && input.workflowId) {\n  result = await helpers.httpRequest({method:'GET', url:'{{N8N_INTERNAL_URL}}/api/v1/workflows/'+input.workflowId, headers: hdrs});\n} else {\n  return JSON.stringify({error: 'Use action: list or get'});\n}\nreturn JSON.stringify(result);"
+      },
+      "id": "tool-self-modify",
+      "name": "Self Modify",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.2,
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Set a timed reminder that sends a Telegram message at the specified time. Provide 'time' as ISO 8601 (e.g. 2026-02-22T22:30:00+01:00) and 'message' as the reminder text.",
+        "workflowId": {
+          "__rl": true,
+          "value": "uCxeCW9mLrN62axw",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/uCxeCW9mLrN62axw",
+          "cachedResultName": "ReminderFactory"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "tool-reminder-wf",
+      "name": "Reminder",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1984,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Erstellt NEUE n8n Workflows für allgemeine Automatisierungen und Integrationen. NICHT für MCP Server verwenden — dafür gibt es mcp_builder. NICHT als Fallback wenn andere Tools fehlschlagen.",
+        "workflowId": {
+          "__rl": true,
+          "value": "CfNQHRGeYOSbPg6I",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/CfNQHRGeYOSbPg6I",
+          "cachedResultName": "WorkflowBuilder"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "tool-workflow-builder",
+      "name": "WorkflowBuilder",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Nextcloud Kalender: Termine lesen und erstellen. Input: JSON mit 'action' ('list' oder 'create'). Für list: {\"action\": \"list\", \"days\": 7} — Termine der nächsten X Tage. Für create: {\"action\": \"create\", \"summary\": \"Titel\", \"dtstart\": \"20260301T100000\", \"dtend\": \"20260301T110000\", \"description\": \"optional\", \"location\": \"optional\"}",
+        "workflowId": {
+          "__rl": true,
+          "value": "QjyEMlJK7gXE8s8H",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/QjyEMlJK7gXE8s8H",
+          "cachedResultName": "📅 Nextcloud CalDAV Sub-Workflow"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "tool-caldav",
+      "name": "Kalender",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        2240,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "name": "mcp_builder",
+        "description": "Erstellt einen neuen MCP Server Workflow. IMMER dieses Tool verwenden wenn der User einen MCP Server oder MCP Tool bauen will — niemals WorkflowBuilder dafür. Bei Fehler: Fehler direkt melden, NICHT auf WorkflowBuilder ausweichen. Parameter: task (was der MCP Server können soll).",
+        "workflowId": {
+          "__rl": true,
+          "value": "2PVbo8BlI0ClXVoQ",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "mcp-builder-tool",
+      "name": "MCP Builder",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Ruft ein Tool auf einem MCP Server auf. Parameter: mcp_url (Server-URL), tool_name (Tool-Name), arguments (JSON Objekt mit Tool-Parametern). Beispiel OpenLibrary: mcp_url={{N8N_URL}}/mcp/openlibrary-api, tool_name=get_book_by_isbn, arguments={\"isbn\":\"9783442744916\"}. Beispiel Wetter: mcp_url={{N8N_URL}}/mcp/wetter, tool_name=get_weather, arguments={\"city\":\"Essen\"}.",
+        "jsCode": "// Debug: figure out what query actually is\nconst qType = typeof query;\nlet mcpUrl = '', toolName = '', args = {};\n\nif (qType === 'object' && query !== null) {\n  // query is already an object\n  mcpUrl = query.mcp_url || '';\n  toolName = query.tool_name || '';\n  args = query.arguments || {};\n} else if (qType === 'string') {\n  try {\n    const parsed = JSON.parse(query);\n    mcpUrl = parsed.mcp_url || '';\n    toolName = parsed.tool_name || '';\n    args = parsed.arguments || {};\n  } catch(e) {\n    return 'Parse error: query=' + String(query).substring(0,200) + ' type=' + qType;\n  }\n} else {\n  return 'Unexpected query type: ' + qType + ' value: ' + String(query).substring(0,200);\n}\n\nif (typeof args === 'string') try { args = JSON.parse(args); } catch(e) {}\nif (!mcpUrl || !toolName) return 'Fehler: mcp_url=' + mcpUrl + ' tool_name=' + toolName + ' (query type was: ' + qType + ')';\n\ntry {\n  // 1. Initialize\n  const init = await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream'},\n    body: JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'greg-mcp',version:'1.0'}}}),\n    returnFullResponse: true, encoding: 'utf-8', json: false\n  });\n  const sid = init.headers && init.headers['mcp-session-id'];\n  if (!sid) return 'MCP: Kein session-id. Body: ' + String(init.body||init).substring(0,200);\n\n  // 2. Initialized\n  await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},\n    body: JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'}),\n    json: false\n  });\n\n  // 3. Call tool\n  const resp = await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},\n    body: JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:toolName,arguments:args}}),\n    json: false\n  });\n\n  const bodyStr = String(resp);\n  const dataLine = bodyStr.split('\\n').find(l => l.startsWith('data: '));\n  if (!dataLine) return 'MCP: Keine Daten. Response: ' + bodyStr.substring(0,200);\n  const result = JSON.parse(dataLine.substring(6));\n  if (result.error) return 'MCP Error: ' + JSON.stringify(result.error);\n  return result.result?.content?.[0]?.text || JSON.stringify(result.result);\n} catch(e) {\n  return 'MCP Error: ' + e.message;\n}",
+        "specifyInputSchema": false
+      },
+      "id": "mcp-client-code",
+      "name": "MCP Client",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.2,
+      "position": [
+        2496,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Soul",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Soul": {
+      "main": [
+        [
+          {
+            "node": "Load Agents Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Agents Config": {
+      "main": [
+        [
+          {
+            "node": "Load User Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load User Profile": {
+      "main": [
+        [
+          {
+            "node": "Load Conversation History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Conversation History": {
+      "main": [
+        [
+          {
+            "node": "Build System Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build System Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Save",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory Save": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Self Modify": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Save": {
+      "main": [
+        [
+          {
+            "node": "Save Conversation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Daily Log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reminder": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WorkflowBuilder": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kalender": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP Builder": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP Client": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "meta": {
+    "n8n-greg-repo": true
+  }
+}

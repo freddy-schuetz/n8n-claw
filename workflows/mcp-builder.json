@@ -1,0 +1,747 @@
+{
+  "name": "🏗️ MCP Builder",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "=https://api.search.brave.com/res/v1/web/search?q={{ encodeURIComponent($json.task + ' API documentation REST reference') }}&count=3&search_lang=en",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept-Encoding",
+              "value": "gzip"
+            },
+            {
+              "name": "X-Subscription-Token",
+              "value": "BSAQ_xOGgLVyk0yJ0ak528UkbA63U6Y"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "search-api-docs",
+      "name": "Search API Docs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        -304
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://r.jina.ai/' + ($json.web?.results?.[0]?.url || '') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "text/plain"
+            },
+            {
+              "name": "X-Return-Format",
+              "value": "text"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "fetch-doc-content",
+      "name": "Fetch Doc Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        -304
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "trigger",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst raw = $('Start').first().json;\nlet task = '';\ntry {\n  const p = JSON.parse(raw.query || '{}');\n  task = p.task || p.description || p.query || raw.query || '';\n} catch(e) {\n  task = raw.task || raw.query || String(raw);\n}\ntask = task.replace(/^task:\\s*/i, '').trim();\n\nlet docsContext = '';\ntry {\n  const searchResults = $('Search API Docs').first().json;\n  const topResults = (searchResults?.web?.results || []).slice(0,3).map(r => `- ${r.title}: ${r.url}`).join('\\n');\n  const docText = $('Fetch Doc Content').first().json?.body || $('Fetch Doc Content').first().json?.data || '';\n  const truncated = String(docText).substring(0, 8000).trim();\n  if (truncated && truncated.length > 100) {\n    docsContext = `\\n\\nAPI DOKUMENTATION:\\nQuellen:\\n${topResults}\\n\\nInhalt:\\n${truncated}`;\n  } else if (topResults) {\n    docsContext = `\\n\\nGefundene Quellen:\\n${topResults}`;\n  }\n} catch(e) { docsContext = ''; }\n\nconst words = task.toLowerCase().split(/\\s+/).filter(w => w.length > 2 && !['ein','eine','der','die','das','und','oder','via','mit','fuer','ueber','von','aus','baue','bau','erstelle','mcp','server','tool','einen','neue','neuen','neues'].includes(w));\nconst serverName = words.slice(0, 3).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || 'Custom Tool';\nconst path = words.slice(0, 2).join('-') || 'custom-tool';\n\nconst prompt = `Generiere JavaScript Code fuer einen n8n Sub-Workflow der API-Anfragen bearbeitet.\n\nAUFGABE: ${task}\n${docsContext}\n\nDer Code laeuft in einem n8n Code-Node. Parameter kommen ueber $json (z.B. $json.isbn).\n\nAntworte NUR mit einem JSON-Objekt:\n{\n  \"tool_name\": \"snake_case_name\",\n  \"description\": \"Was das Tool tut (1 Satz, fuer den AI Agent)\",\n  \"params\": [{\"name\": \"param1\", \"description\": \"was dieser param bedeutet\", \"type\": \"string\"}],\n  \"jsCode\": \"der JavaScript Code\"\n}\n\nREGELN fuer jsCode (laeuft in n8n Code Node, NICHT toolCode):\n- Parameter lesen: const isbn = $json.isbn || $input.first().json.isbn;\n- HTTP: await helpers.httpRequest({method:'GET', url:'...'})\n- Return MUSS ein Array sein: return [{json: {result: 'antwort als string'}}];\n- KEIN fetch(), KEIN require(), KEIN new URL()\n- Fehlerbehandlung einbauen\n\nBEISPIEL fuer ISBN lookup:\nconst isbn = $json.isbn || $input.first().json.isbn;\nif (!isbn) return [{json: {result: 'Fehler: ISBN fehlt'}}];\nconst data = await helpers.httpRequest({method:'GET', url:'https://openlibrary.org/api/books?bibkeys=ISBN:'+isbn+'&format=json&jscmd=data'});\nconst book = data['ISBN:'+isbn];\nif (!book) return [{json: {result: 'Nicht gefunden: '+isbn}}];\nreturn [{json: {result: 'Titel: '+book.title+', Autor: '+(book.authors?.[0]?.name||'unbekannt')}}];\n\nAntworte NUR mit dem JSON-Objekt!`;\n\nreturn [{json: {prompt, task, serverName, path}}];\n"
+      },
+      "id": "build-prompt",
+      "name": "BuildPrompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}"
+      },
+      "id": "ai-chain",
+      "name": "Generate Tool",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        896,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst llmRaw = $input.first().json.text || $input.first().json.response || '';\nconst meta = $('BuildPrompt').first().json;\n\nlet toolDef;\ntry {\n  const jsonMatch = llmRaw.match(/\\{[\\s\\S]*\\}/);\n  toolDef = JSON.parse(jsonMatch[0]);\n} catch(e) {\n  return [{json: {error: 'JSON parse failed', raw: llmRaw.substring(0,500)}}];\n}\n\nconst toolName = toolDef.tool_name || 'custom_tool';\nconst description = toolDef.description || meta.task;\nconst jsCode = toolDef.jsCode || '';\nconst params = toolDef.params || [];\n\n// sampleArgs for testing\nconst sampleObj = {};\nparams.forEach(p => { sampleObj[p.name || p] = 'test'; });\n\n// Sub-workflow JSON: Execute Workflow Trigger + Code node\nconst subWorkflow = {\n  name: 'MCP Sub: ' + meta.serverName,\n  settings: {callerPolicy: 'workflowsFromSameOwner'},\n  nodes: [\n    {\n      id: 'sub-trigger',\n      name: 'Execute Workflow Trigger',\n      type: 'n8n-nodes-base.executeWorkflowTrigger',\n      typeVersion: 1.1,\n      position: [0, 0],\n      parameters: {inputSource: 'passthrough'}\n    },\n    {\n      id: 'sub-code',\n      name: 'Run Tool',\n      type: 'n8n-nodes-base.code',\n      typeVersion: 2,\n      position: [256, 0],\n      parameters: {language: 'javaScript', jsCode: jsCode}\n    }\n  ],\n  connections: {\n    'Execute Workflow Trigger': {main: [[{node: 'Run Tool', type: 'main', index: 0}]]}\n  }\n};\n\n// MCP server workflow: mcpTrigger + toolWorkflow pointing to sub-workflow\n// (sub-workflow ID filled in after sub is created)\nconst workflowInputsSchema = params.map(p => ({\n  id: p.name || p,\n  displayName: p.name || p,\n  type: (p.type || 'string'),\n  description: p.description || '',\n  required: true,\n  defaultMatch: false,\n  display: true,\n  canBeUsedToMatch: true,\n  removed: false\n}));\n\nconst workflowInputsValue = {};\nparams.forEach(p => {\n  const pname = p.name || p;\n  workflowInputsValue[pname] = `={{ $fromAI('${pname}', '${p.description || pname}', '${p.type || 'string'}') }}`;\n});\n\nreturn [{json: {\n  subWorkflow: JSON.stringify(subWorkflow),\n  toolName,\n  description,\n  path: meta.path,\n  serverName: meta.serverName,\n  sampleArgs: JSON.stringify(sampleObj),\n  workflowInputsSchema: JSON.stringify(workflowInputsSchema),\n  workflowInputsValue: JSON.stringify(workflowInputsValue),\n  originalJsCode: jsCode\n}}];\n"
+      },
+      "id": "assemble",
+      "name": "Assemble & Deploy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{N8N_INTERNAL_URL}}/api/v1/workflows",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "{{N8N_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.subWorkflow }}",
+        "options": {}
+      },
+      "id": "create-wf",
+      "name": "Create Sub-Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1472,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{N8N_INTERNAL_URL}}/api/v1/workflows",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "{{N8N_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.mcpWorkflowJson }}",
+        "options": {}
+      },
+      "id": "activate-wf",
+      "name": "Create MCP Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1696,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-opus-4-6",
+          "mode": "list",
+          "cachedResultName": "Claude Opus 4.6"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        968,
+        -80
+      ],
+      "id": "1a628b60-a6b8-46d9-9857-199bfb495b7a",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{SUPABASE_URL}}/rest/v1/mcp_registry?on_conflict=path",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"server_name\": $('Build MCP JSON').first().json.serverName, \"path\": $('Build MCP JSON').first().json.path, \"mcp_url\": '{{N8N_URL}}/mcp/' + $('Build MCP JSON').first().json.path, \"description\": $('Assemble & Deploy').first().json.description, \"tools\": [ $('Build MCP JSON').first().json.toolName ], \"workflow_id\": $('Create MCP Workflow').first().json.id, \"active\": true } }}",
+        "options": {}
+      },
+      "id": "register-mcp",
+      "name": "Register MCP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3392,
+        -304
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst summary = $('Result').first().json;\nconst supa = $('Register MCP').first()?.json;\nconst agentUpdate = $('Build Instructions').first()?.json;\n\nlet registryText;\nif (Array.isArray(supa) && supa.length) {\n  registryText = `Registry: ✅ ${supa[0].path}`;\n} else if (supa && supa.error) {\n  registryText = 'Registry Fehler: ' + (supa.error.message || JSON.stringify(supa).substring(0,100));\n} else {\n  registryText = 'Registry: gespeichert';\n}\n\nlet agentText;\nif (agentUpdate && agentUpdate.serverCount > 0) {\n  agentText = `Agent Config: ✅ aktualisiert (${agentUpdate.serverCount} MCP Server bekannt)`;\n} else {\n  agentText = 'Agent Config: konnte nicht aktualisiert werden';\n}\n\nreturn [{ json: {\n  response: summary.response + '\\n\\n' + registryText + '\\n' + agentText,\n  workflow_id: summary.workflow_id,\n  mcp_path: summary.mcp_path,\n  tool_name: summary.tool_name\n}}];\n"
+      },
+      "id": "finalize-response",
+      "name": "Finalize Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4288,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "{{SUPABASE_URL}}/rest/v1/mcp_registry?select=server_name,path,mcp_url,description,tools&active=eq.true&order=created_at.asc",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{SUPABASE_SERVICE_KEY}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-registry",
+      "name": "Fetch Registry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3616,
+        -304
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst servers = $input.all().map(i => i.json);\nif (!servers || !servers.length) {\n  return [{ json: { instructions: null, serverCount: 0 } }];\n}\n\nconst lines = servers.map(s => {\n  const tools = Array.isArray(s.tools) ? s.tools.join(', ') : (s.tools || '?');\n  return `- ${s.server_name}: ${s.mcp_url} (Tool: ${tools}) — ${s.description || ''}`;\n});\n\nconst instructions = `Du hast MCP (Model Context Protocol) Fähigkeiten:\n\n## MCP Client (mcp_client tool)\nDamit rufst du Tools auf MCP Servern auf. Parameter:\n- mcp_url: URL des MCP Servers\n- tool_name: Name des Tools\n- arguments: JSON object mit Tool-Parametern\n\n## MCP Builder (mcp_builder tool)\nDamit baust du NEUE MCP Server Workflows. Parameter:\n- task: Was der Server können soll\nACHTUNG: Nach dem Build einmal im n8n UI deaktivieren + aktivieren (Webhook-Bug).\n\n## Aktuell verfügbare MCP Server (${servers.length} total):\n${lines.join('\\n')}\n\n## Registry\nAlle aktiven Server: SELECT * FROM mcp_registry WHERE active = true;\nNeue Server werden automatisch eingetragen nach dem Build.`;\n\nreturn [{ json: { instructions, serverCount: servers.length } }];\n"
+      },
+      "id": "build-instructions",
+      "name": "Build Instructions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "{{SUPABASE_URL}}/rest/v1/agents?key=eq.mcp_instructions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"content\": $json.instructions } }}",
+        "options": {}
+      },
+      "id": "update-agent-config",
+      "name": "Update Agent Config",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4064,
+        -304
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst activated = $('Patch Tool Schema').first().json;\nconst assembled = $('Assemble & Deploy').first().json;\nconst workflowId = activated.id;\nconst path = assembled.path;\nconst toolName = assembled.toolName;\nlet sampleArgs;\ntry { sampleArgs = JSON.parse(assembled.sampleArgs || '{}'); } catch(e) { sampleArgs = {}; }\nconst mcpUrl = '{{N8N_URL}}/mcp/' + path;\n\ntry {\n  const init = await helpers.httpRequest({\n    method:'POST', url:mcpUrl,\n    headers:{'Content-Type':'application/json','Accept':'application/json, text/event-stream'},\n    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'test',version:'1.0'}}}),\n    returnFullResponse:true, encoding:'utf-8', json:false\n  });\n  const sid = init.headers['mcp-session-id'];\n  if (!sid) return [{json:{success:false,error:'Kein session ID — Webhook-Bug, UI-Toggle nötig',workflowId,toolName,path,sampleArgs:assembled.sampleArgs}}];\n  await helpers.httpRequest({method:'POST',url:mcpUrl,headers:{'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},body:JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'}),json:false});\n  const resp = await helpers.httpRequest({method:'POST',url:mcpUrl,headers:{'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},body:JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:toolName,arguments:sampleArgs}}),json:false});\n  const dataLine = String(resp).split('\\n').find(l => l.startsWith('data: '));\n  if (!dataLine) return [{json:{success:false,error:'Keine Antwort: '+String(resp).substring(0,200),workflowId,toolName,path,sampleArgs:assembled.sampleArgs}}];\n  const result = JSON.parse(dataLine.substring(6));\n  const content = result.result?.content?.[0]?.text || '';\n  if (content.includes('Fehler:') || content.includes('Error:') || result.error) {\n    return [{json:{success:false,error:content||JSON.stringify(result.error),workflowId,toolName,path,sampleArgs:assembled.sampleArgs}}];\n  }\n  return [{json:{success:true,response:content,workflowId,toolName,path}}];\n} catch(e) {\n  return [{json:{success:false,error:e.message,workflowId,toolName,path,sampleArgs:assembled.sampleArgs}}];\n}\n"
+      },
+      "id": "test-mcp",
+      "name": "Test MCP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        -304
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "test-passed",
+      "name": "Test Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2144,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst test = $input.first().json;\nconst assembled = $('Assemble & Deploy').first().json;\n\nlet schemaStr = '';\ntry { schemaStr = JSON.stringify(JSON.parse(test.inputSchema || '{}'), null, 2); } catch(e) { schemaStr = test.inputSchema || '{}'; }\n\nconst prompt = `Ein n8n MCP Server Tool hat einen Fehler beim Test:\n\nFEHLER: ${test.error}\n\nTOOL NAME: ${test.toolName}\nTEST PARAMETER (aus input_schema generiert): ${test.sampleArgs}\n\nAKTUELLES INPUT_SCHEMA:\n${schemaStr}\n\nAKTUELLER JSCODE:\n${assembled.originalJsCode}\n\nANALYSIERE den Fehler. Mögliche Ursachen:\n- Falscher API Endpoint\n- Falsche Parameter-Namen (jsCode ≠ input_schema properties)\n- Fehlende Fehlerbehandlung\n- API returnt anderes Format als erwartet\n\nGib den korrigierten JavaScript Code zurück.\nREGELN:\n- Parameter lesen: query.param_name (MUSS mit input_schema properties übereinstimmen)\n- HTTP: await helpers.httpRequest({method:'GET', url:'...', headers:{...}})\n- KEIN fetch(), KEIN require(), KEIN new URL()\n- Return: String (kein JSON-Objekt)\n\nAntworte NUR mit dem korrigierten JavaScript Code (kein Markdown, kein JSON, reiner JS Code)!`;\n\nreturn [{json:{prompt, toolName:test.toolName, workflowId:test.workflowId, path:test.path, sampleArgs:test.sampleArgs, inputSchema:test.inputSchema}}];\n"
+      },
+      "id": "build-fix-prompt",
+      "name": "Build Fix Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}"
+      },
+      "id": "fix-llm",
+      "name": "Fix LLM",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        2592,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-opus-4-6",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "id": "fix-model",
+      "name": "Fix Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        2664,
+        44
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst llmOutput = $input.first().json.text || '';\nconst meta = $('Build Fix Prompt').first().json;\nconst N8N_KEY = '{{N8N_API_KEY}}';\n\nlet newJsCode = (llmOutput || '').trim().replace(/^```(javascript|js)?\\n?/, '').replace(/\\n?```$/, '').trim();\nif (!newJsCode) return [{json:{success:false,error:'LLM gab leeren Fix zurück',workflowId:meta.workflowId,path:meta.path,fixApplied:false}}];\n\n// fetch + patch workflow\nconst wf = await helpers.httpRequest({\n  method:'GET', url:`{{N8N_URL}}/api/v1/workflows/${meta.workflowId}`,\n  headers:{'X-N8N-API-KEY':N8N_KEY,'Content-Type':'application/json'}\n});\nconst nodes = wf.nodes.map(n => {\n  if (n.parameters && n.parameters.name === meta.toolName) {\n    n.parameters.jsCode = newJsCode;\n    n.parameters.specifyInputSchema = false;\n  }\n  return n;\n});\nawait helpers.httpRequest({\n  method:'PUT', url:`{{N8N_URL}}/api/v1/workflows/${meta.workflowId}`,\n  headers:{'X-N8N-API-KEY':N8N_KEY,'Content-Type':'application/json'},\n  body:JSON.stringify({name:wf.name, nodes, connections:wf.connections, settings:wf.settings||{}})\n});\n\n// retest\nconst mcpUrl = '{{N8N_URL}}/mcp/' + meta.path;\nlet sampleArgs;\ntry { sampleArgs = JSON.parse(meta.schemaExample); } catch(e) { sampleArgs = {}; }\ntry {\n  const init = await helpers.httpRequest({\n    method:'POST',url:mcpUrl,\n    headers:{'Content-Type':'application/json','Accept':'application/json, text/event-stream'},\n    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'test',version:'1.0'}}}),\n    returnFullResponse:true,encoding:'utf-8',json:false\n  });\n  const sid = init.headers['mcp-session-id'];\n  if (!sid) return [{json:{success:false,error:'Kein session ID nach Fix',fixApplied:true,workflowId:meta.workflowId,path:meta.path,toolName:meta.toolName}}];\n  await helpers.httpRequest({method:'POST',url:mcpUrl,headers:{'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},body:JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'}),json:false});\n  const resp = await helpers.httpRequest({method:'POST',url:mcpUrl,headers:{'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},body:JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:meta.toolName,arguments:sampleArgs}}),json:false});\n  const dataLine = String(resp).split('\\n').find(l => l.startsWith('data: '));\n  if (!dataLine) return [{json:{success:false,error:'Kein data nach Fix',fixApplied:true,workflowId:meta.workflowId,path:meta.path,toolName:meta.toolName}}];\n  const result = JSON.parse(dataLine.substring(6));\n  const content = result.result?.content?.[0]?.text || '';\n  const ok = !content.startsWith('Fehler:') && !content.startsWith('Error:') && !result.error;\n  return [{json:{success:ok,response:content,fixApplied:true,workflowId:meta.workflowId,path:meta.path,toolName:meta.toolName}}];\n} catch(e) {\n  return [{json:{success:false,error:'Retest: '+e.message,fixApplied:true,workflowId:meta.workflowId,path:meta.path,toolName:meta.toolName}}];\n}\n"
+      },
+      "id": "patch-retest",
+      "name": "Patch & Retest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2944,
+        -180
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst mcpCreated = $('Create MCP Workflow').first().json;\nconst assembled = $('Assemble & Deploy').first().json;\nconst subId = $('Create Sub-Workflow').first().json.id;\nconst testResult = $input.first().json;\n\nconst testStatus = testResult.success\n  ? `✅ Test OK: ${(testResult.response||'').substring(0,100)}`\n  : `❌ Test fehlgeschlagen (Webhook-Bug → im UI toggle nötig): ${(testResult.error||'').substring(0,100)}`;\n\nreturn [{json:{\n  response: `MCP Server erstellt!\\nMCP Workflow: ${mcpCreated.name} (ID: ${mcpCreated.id})\\nSub-Workflow ID: ${subId}\\nMCP-Path: /mcp/${assembled.path}\\nTool: ${assembled.toolName}\\nURL: {{N8N_URL}}/mcp/${assembled.path}\\n\\n${testStatus}\\n\\nBitte im n8n UI einmal deaktivieren + aktivieren (Webhook-Bug).`,\n  workflow_id: mcpCreated.id,\n  sub_workflow_id: subId,\n  mcp_path: assembled.path,\n  tool_name: assembled.toolName,\n  test_success: testResult.success\n}}];\n"
+      },
+      "id": "result",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3168,
+        -304
+      ]
+    },
+    {
+      "id": "patch-tool-schema",
+      "name": "Patch Tool Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        -200
+      ],
+      "parameters": {
+        "jsCode": "\nconst subId = $('Create Sub-Workflow').first().json.id;\nconst KEY = '{{N8N_API_KEY}}';\nconst H = {'X-N8N-API-KEY': KEY};\nawait helpers.httpRequest({method:'POST', url:`{{N8N_INTERNAL_URL}}/api/v1/workflows/${subId}/activate`, headers:H});\nreturn [{json: {subId, activated: true}}];\n"
+      }
+    },
+    {
+      "id": "build-mcp-json",
+      "name": "Build MCP JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        0
+      ],
+      "parameters": {
+        "jsCode": "\nconst subId = $('Create Sub-Workflow').first().json.id;\nconst assembled = $('Assemble & Deploy').first().json;\nconst toolName = assembled.toolName;\nconst description = assembled.description;\nconst serverName = assembled.serverName;\nconst path = assembled.path;\nconst workflowInputsValue = JSON.parse(assembled.workflowInputsValue || '{}');\nconst workflowInputsSchema = JSON.parse(assembled.workflowInputsSchema || '[]');\n\nconst mcpWorkflow = {\n  name: 'MCP: ' + serverName,\n  settings: {},\n  nodes: [\n    {\n      id: 'mcp-trigger',\n      name: 'MCP Server Trigger',\n      type: '@n8n/n8n-nodes-langchain.mcpTrigger',\n      typeVersion: 2,\n      position: [0, 0],\n      parameters: {path: path, authentication: 'none'}\n    },\n    {\n      id: 'tool-wf',\n      name: toolName,\n      type: '@n8n/n8n-nodes-langchain.toolWorkflow',\n      typeVersion: 2.2,\n      position: [0, 300],\n      parameters: {\n        name: toolName,\n        description: description,\n        workflowId: {__rl: true, value: subId, mode: 'id'},\n        workflowInputs: {\n          mappingMode: 'defineBelow',\n          value: workflowInputsValue,\n          matchingColumns: [],\n          schema: workflowInputsSchema,\n          attemptToConvertTypes: false,\n          convertFieldsToString: false\n        }\n      }\n    }\n  ],\n  connections: {}\n};\nmcpWorkflow.connections[toolName] = {ai_tool: [[{node: 'MCP Server Trigger', type: 'ai_tool', index: 0}]]};\n\nreturn [{json: {mcpWorkflowJson: JSON.stringify(mcpWorkflow), subId, toolName, path, serverName}}];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Search API Docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildPrompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Tool": {
+      "main": [
+        [
+          {
+            "node": "Assemble & Deploy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble & Deploy": {
+      "main": [
+        [
+          {
+            "node": "Create Sub-Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Tool",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Result": {
+      "main": [
+        [
+          {
+            "node": "Register MCP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register MCP": {
+      "main": [
+        [
+          {
+            "node": "Fetch Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Registry": {
+      "main": [
+        [
+          {
+            "node": "Build Instructions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Instructions": {
+      "main": [
+        [
+          {
+            "node": "Update Agent Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Agent Config": {
+      "main": [
+        [
+          {
+            "node": "Finalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search API Docs": {
+      "main": [
+        [
+          {
+            "node": "Fetch Doc Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Doc Content": {
+      "main": [
+        [
+          {
+            "node": "BuildPrompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test MCP": {
+      "main": [
+        [
+          {
+            "node": "Test Passed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Passed?": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Fix Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Fix Prompt": {
+      "main": [
+        [
+          {
+            "node": "Fix LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fix LLM": {
+      "main": [
+        [
+          {
+            "node": "Patch & Retest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Patch & Retest": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fix Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Fix LLM",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Patch Tool Schema": {
+      "main": [
+        [
+          {
+            "node": "Build MCP JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Sub-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Patch Tool Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create MCP Workflow": {
+      "main": [
+        [
+          {
+            "node": "Test MCP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build MCP JSON": {
+      "main": [
+        [
+          {
+            "node": "Create MCP Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "meta": {
+    "n8n-greg-repo": true
+  }
+}

@@ -1,0 +1,10 @@
+[
+  {
+    "server_name": "Wetter",
+    "path": "wetter",
+    "mcp_url": "{{N8N_URL}}/mcp/wetter",
+    "description": "Aktuelles Wetter und 3-Tage-Vorhersage via Open-Meteo (kostenlos, kein API Key)",
+    "tools": ["get_weather"],
+    "active": true
+  }
+]

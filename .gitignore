@@ -1,0 +1,7 @@
+.env
+workflows/deployed/
+*.log
+*.bak
+__pycache__/
+.DS_Store
+node_modules/

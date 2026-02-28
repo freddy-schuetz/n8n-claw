@@ -1,0 +1,10 @@
+[
+  {
+    "user_id": "telegram:{{TELEGRAM_CHAT_ID}}",
+    "name": "your_username",
+    "display_name": "Your Name",
+    "timezone": "Europe/Berlin",
+    "preferences": {},
+    "context": "Replace with your context — what you do, your projects, etc."
+  }
+]

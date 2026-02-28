@@ -1,0 +1,53 @@
+{
+  "name": "🔌 MCP Client",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "mcp-call",
+      "name": "MCP Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Parse input - passthrough mode\nconst raw = $input.first().json;\nlet mcpUrl, toolName, args;\ntry {\n  const p = JSON.parse(raw.query || '{}');\n  mcpUrl = p.mcp_url || p.url || '';\n  toolName = p.tool_name || p.tool || '';\n  args = p.arguments || p.args || {};\n  if (typeof args === 'string') args = JSON.parse(args);\n} catch(e) {\n  mcpUrl = raw.mcp_url || '';\n  toolName = raw.tool_name || '';\n  args = raw.arguments || raw.args || {};\n  if (typeof args === 'string') try { args = JSON.parse(args); } catch(e2) {}\n}\n\nif (!mcpUrl || !toolName) {\n  return [{ json: { error: `Missing mcp_url or tool_name. Got: mcp_url=${mcpUrl}, tool_name=${toolName}` } }];\n}\n\ntry {\n  // 1. Initialize — returnFullResponse to get headers\n  const init = await this.helpers.httpRequest({\n    method: 'POST',\n    url: mcpUrl,\n    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },\n    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'greg-mcp', version: '1.0' } } }),\n    returnFullResponse: true,\n    encoding: 'utf-8',\n    json: false\n  });\n\n  const sid = init.headers['mcp-session-id'];\n  if (!sid) return [{ json: { error: 'No MCP session ID', body: String(init.body).substring(0,200) } }];\n\n  // 2. Initialized notification\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: mcpUrl,\n    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream', 'mcp-session-id': sid },\n    body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),\n    json: false\n  });\n\n  // 3. Call tool\n  const resp = await this.helpers.httpRequest({\n    method: 'POST',\n    url: mcpUrl,\n    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream', 'mcp-session-id': sid },\n    body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: toolName, arguments: args } }),\n    json: false\n  });\n\n  // Parse SSE response\n  const bodyStr = String(resp);\n  const dataLine = bodyStr.split('\\n').find(l => l.startsWith('data: '));\n  if (!dataLine) return [{ json: { error: 'No data in MCP response', raw: bodyStr.substring(0,300) } }];\n  const result = JSON.parse(dataLine.substring(6));\n  const text = result.result?.content?.[0]?.text || JSON.stringify(result.result || result);\n\n  return [{ json: { response: text, tool: toolName, mcp_url: mcpUrl } }];\n} catch(e) {\n  return [{ json: { error: e.message, stack: e.stack?.substring(0,200), tool: toolName, mcp_url: mcpUrl } }];\n}"
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "MCP Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "meta": {
+    "n8n-greg-repo": true
+  }
+}

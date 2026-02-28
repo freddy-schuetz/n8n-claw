@@ -1,0 +1,116 @@
+{
+  "name": "WorkflowBuilder",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "wfb-start"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse input from AI Agent tool call\nconst raw = $input.first().json;\nlet task = '';\ntry {\n  const p = JSON.parse(raw.query || '{}');\n  task = p.task || p.description || p.prompt || raw.query || '';\n} catch(e) {\n  task = raw.task || raw.query || JSON.stringify(raw);\n}\n\nconst prompt = `Du bist ein n8n Workflow-Experte. Deine Aufgabe: einen vollständigen, funktionierenden n8n Workflow erstellen.\n\nAUFGABE: ${task}\n\nVORGEHEN:\n1. Lies /workspace/n8n-reference/CHEATSHEET.md für API-Zugang, Node-Typen und Workflow-Struktur\n2. Schau dir die Beispiel-Workflows in /workspace/n8n-reference/example-*.json an\n3. Erstelle die Workflow JSON-Datei\n4. Erstelle ggf. nötige Credentials via curl (siehe Cheatsheet)\n5. Erstelle den Workflow via curl POST an die n8n API\n6. Aktiviere den Workflow via curl POST\n7. Antworte mit: Workflow-Name, ID, und was er tut\n\nWICHTIG:\n- Nutze curl für alle API-Calls (NICHT MCP)\n- n8n expressions MÜSSEN mit = prefix starten: \"={{ $json.field }}\"\n- Alle Infos stehen im CHEATSHEET.md\n- Baue KOMPLETTE, FUNKTIONALE Workflows - keine Platzhalter!`;\n\nreturn [{json: {prompt, task}}];"
+      },
+      "name": "BuildPrompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "wfb-prompt"
+    },
+    {
+      "parameters": {
+        "connectionMode": "ssh",
+        "prompt": "={{ $json.prompt }}",
+        "permissionMode": "bypassPermissions",
+        "toolPermissions": {},
+        "model": "sonnet",
+        "options": {
+          "maxTurns": 25,
+          "timeout": 120000,
+          "systemPrompt": "Du bist ein n8n Workflow-Experte. REGELN:\n1. Lies ZUERST /workspace/n8n-reference/CHEATSHEET.md\n2. Dann SOFORT handeln — curl commands ausführen, nicht lange planen\n3. Nutze NUR curl und Bash für die n8n API (kein MCP)\n4. Schreib die workflow JSON in eine Datei, dann curl POST\n5. Erstelle nötige Credentials ZUERST, dann den Workflow\n6. Aktiviere den Workflow am Ende\n7. Antworte knapp: Was gebaut wurde + Workflow-ID\n\nWICHTIG: Nicht overthinking! Sofort mit dem ersten Bash-Command starten.",
+          "additionalArgs": "--model sonnet"
+        }
+      },
+      "name": "Claude Code",
+      "type": "n8n-nodes-claude-code-cli.claudeCode",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "id": "wfb-claude",
+      "credentials": {
+        "claudeCodeSshApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Claude Code Runner SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Claude Code's response - try all possible fields\nconst result = $input.first().json;\n\n// The node outputs: success, sessionId, output, rawOutput, exitCode, duration, cost, error\n// 'output' should have the text result, 'rawOutput' has the full JSON\nconst output = result.output \n  || result.result \n  || result.text \n  || (result.rawOutput && result.rawOutput.result)\n  || JSON.stringify(result);\n\nreturn [{json: {\n  response: output || 'Claude Code completed but returned no text output. Check n8n execution log for details.',\n  cost: result.cost || (result.rawOutput && result.rawOutput.total_cost_usd) || null,\n  session_id: result.sessionId || (result.rawOutput && result.rawOutput.session_id) || null,\n  success: result.success,\n  duration_s: result.duration ? Math.round(result.duration / 1000) : null,\n  // Debug: include raw keys to diagnose empty outputs\n  _debug_keys: Object.keys(result).join(','),\n  _debug_output_length: (output || '').length\n}}];"
+      },
+      "name": "FormatOutput",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "wfb-output"
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "BuildPrompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildPrompt": {
+      "main": [
+        [
+          {
+            "node": "Claude Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Code": {
+      "main": [
+        [
+          {
+            "node": "FormatOutput",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "meta": {
+    "n8n-greg-repo": true
+  }
+}
