@@ -75,24 +75,25 @@ The script will:
 
 Open n8n at the URL shown at the end of setup.
 
-**Required:**
+The easiest way is to open each workflow and click **"Create new credential"** directly on the node that needs it. n8n will prompt you automatically.
 
-1. **Postgres credential** *(shown in setup output)*
-   - Settings → Credentials → New → **Postgres**
-   - Name: `Supabase Postgres`
-   - Host: `db` | DB: `postgres` | User: `postgres`
-   - Password: *(shown in setup output)*
-   - SSL: `disable`
+**Credentials you'll need:**
 
-2. **Anthropic API credential**
-   - Settings → Credentials → New → **Anthropic API**
-   - Name: `Anthropic API` *(exact)*
-   - API Key: your Anthropic key
+| Credential | Name (exact!) | Where needed |
+|---|---|---|
+| Postgres | `Supabase Postgres` | Agent (Load Soul, Load History, etc.) |
+| Anthropic API | `Anthropic API` | Agent (Claude node), MCP Builder |
+| Telegram Bot | `Telegram Bot` | Agent (Telegram Trigger + Reply) |
 
-3. **MCP Builder — select LLM model**
-   - Open the MCP Builder workflow
-   - Click the LLM node → select `Anthropic API` as chat model
-   - *(Not set automatically due to n8n credential linking)*
+**Postgres connection details** *(shown in setup output)*:
+- Host: `db` | Port: `5432` | DB: `postgres` | User: `postgres`
+- Password: *(shown at end of setup)*
+- SSL: `disable`
+
+**MCP Builder — select LLM model:**
+- Open the MCP Builder workflow → click the LLM node
+- Select `Anthropic API` as the chat model
+- *(not set automatically due to n8n credential linking)*
 
 ### Step 4 — Activate all workflows
 
@@ -188,6 +189,48 @@ docker logs n8n-claw        # n8n
 docker logs n8n-claw-db     # PostgreSQL
 docker logs n8n-claw-rest   # PostgREST
 ```
+
+---
+
+## Optional: WorkflowBuilder with Claude Code
+
+The WorkflowBuilder tool lets your agent build complex n8n workflows using Claude Code CLI. This requires additional setup:
+
+### 1. Install the community node
+
+In n8n UI → Settings → Community Nodes → Install:
+```
+n8n-nodes-claude-code
+```
+
+### 2. Install Claude Code on your VPS
+
+```bash
+# Install Node.js if needed
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt-get install -y nodejs
+
+# Install Claude Code CLI globally
+npm install -g @anthropic-ai/claude-code
+
+# Verify
+claude --version
+```
+
+### 3. Configure in n8n
+
+- Open the WorkflowBuilder workflow
+- The Claude Code node needs access to the CLI
+- Set `ANTHROPIC_API_KEY` environment variable in your n8n container:
+
+```yaml
+# Add to docker-compose.yml under n8n environment:
+- ANTHROPIC_API_KEY=your_key_here
+```
+
+Then restart: `docker compose up -d n8n`
+
+> Without this setup, the WorkflowBuilder tool won't function — but all other agent capabilities work fine without it.
 
 ---
 
