@@ -543,10 +543,8 @@
         "description": "Set a timed reminder that sends a Telegram message at the specified time. Provide 'time' as ISO 8601 (e.g. 2026-02-22T22:30:00+01:00) and 'message' as the reminder text.",
         "workflowId": {
           "__rl": true,
-          "value": "uCxeCW9mLrN62axw",
-          "mode": "list",
-          "cachedResultUrl": "/workflow/uCxeCW9mLrN62axw",
-          "cachedResultName": "ReminderFactory"
+          "value": "REPLACE_REMINDER_FACTORY_ID",
+          "mode": "id"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
@@ -571,10 +569,8 @@
         "description": "Erstellt NEUE n8n Workflows für allgemeine Automatisierungen und Integrationen. NICHT für MCP Server verwenden — dafür gibt es mcp_builder. NICHT als Fallback wenn andere Tools fehlschlagen.",
         "workflowId": {
           "__rl": true,
-          "value": "CfNQHRGeYOSbPg6I",
-          "mode": "list",
-          "cachedResultUrl": "/workflow/CfNQHRGeYOSbPg6I",
-          "cachedResultName": "WorkflowBuilder"
+          "value": "REPLACE_WORKFLOW_BUILDER_ID",
+          "mode": "id"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
@@ -599,10 +595,8 @@
         "description": "Nextcloud Kalender: Termine lesen und erstellen. Input: JSON mit 'action' ('list' oder 'create'). Für list: {\"action\": \"list\", \"days\": 7} — Termine der nächsten X Tage. Für create: {\"action\": \"create\", \"summary\": \"Titel\", \"dtstart\": \"20260301T100000\", \"dtend\": \"20260301T110000\", \"description\": \"optional\", \"location\": \"optional\"}",
         "workflowId": {
           "__rl": true,
-          "value": "QjyEMlJK7gXE8s8H",
-          "mode": "list",
-          "cachedResultUrl": "/workflow/QjyEMlJK7gXE8s8H",
-          "cachedResultName": "📅 Nextcloud CalDAV Sub-Workflow"
+          "value": "REPLACE_CALDAV_ID",
+          "mode": "id"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
@@ -628,7 +622,7 @@
         "description": "Erstellt einen neuen MCP Server Workflow. IMMER dieses Tool verwenden wenn der User einen MCP Server oder MCP Tool bauen will — niemals WorkflowBuilder dafür. Bei Fehler: Fehler direkt melden, NICHT auf WorkflowBuilder ausweichen. Parameter: task (was der MCP Server können soll).",
         "workflowId": {
           "__rl": true,
-          "value": "2PVbo8BlI0ClXVoQ",
+          "value": "REPLACE_MCP_BUILDER_ID",
           "mode": "id"
         },
         "workflowInputs": {

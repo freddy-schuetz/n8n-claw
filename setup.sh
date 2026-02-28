@@ -366,7 +366,42 @@ for name in $IMPORT_ORDER; do
   fi
 done
 
-# ── 11. Activate agent ───────────────────────────────────────
+# ── 11. Patch workflow IDs in agent ─────────────────────────
+echo -e "\n${GREEN}🔗 Wiring workflow references...${NC}"
+AGENT_WF_ID=${WF_IDS['n8n-claw-agent']}
+if [ -n "$AGENT_WF_ID" ]; then
+  AGENT_JSON=$(curl -s "${N8N_BASE}/api/v1/workflows/${AGENT_WF_ID}" \
+    -H "X-N8N-API-KEY: ${N8N_API_KEY}")
+
+  PATCHED=$(echo "$AGENT_JSON" | python3 -c "
+import sys, json
+raw = sys.stdin.read()
+replacements = {
+  'REPLACE_REMINDER_FACTORY_ID': '${WF_IDS[reminder-factory]}',
+  'REPLACE_WORKFLOW_BUILDER_ID': '${WF_IDS[workflow-builder]}',
+  'REPLACE_CALDAV_ID':           '${WF_IDS[caldav-sub-workflow]}',
+  'REPLACE_MCP_BUILDER_ID':      '${WF_IDS[mcp-builder]}',
+}
+for placeholder, real_id in replacements.items():
+    raw = raw.replace(placeholder, real_id)
+wf = json.loads(raw)
+nodes = wf.get('nodes') or wf.get('activeVersion',{}).get('nodes',[])
+conns = wf.get('connections') or wf.get('activeVersion',{}).get('connections',{})
+print(json.dumps({'name': wf['name'], 'nodes': nodes, 'connections': conns, 'settings': wf.get('settings',{})}))
+" 2>/dev/null)
+
+  if [ -n "$PATCHED" ]; then
+    echo "$PATCHED" | curl -s -X PUT "${N8N_BASE}/api/v1/workflows/${AGENT_WF_ID}" \
+      -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
+      -H "Content-Type: application/json" -d @- > /dev/null
+    echo "  ✅ Reminder:        ${WF_IDS[reminder-factory]}"
+    echo "  ✅ WorkflowBuilder: ${WF_IDS[workflow-builder]}"
+    echo "  ✅ CalDAV:          ${WF_IDS[caldav-sub-workflow]}"
+    echo "  ✅ MCP Builder:     ${WF_IDS[mcp-builder]}"
+  fi
+fi
+
+# ── 12. Activate agent ───────────────────────────────────────
 AGENT_ID=${WF_IDS['n8n-claw-agent']}
 if [ -n "$AGENT_ID" ]; then
   AGENT_ACTIVATE=$(curl -s -X POST "${N8N_BASE}/api/v1/workflows/${AGENT_ID}/activate" \
