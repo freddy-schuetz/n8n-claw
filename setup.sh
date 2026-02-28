@@ -57,9 +57,12 @@ if [ -z "$N8N_API_KEY" ] || [[ "$N8N_API_KEY" == your_* ]]; then
     curl -s http://localhost:5678/healthz > /dev/null 2>&1 && break
     sleep 2
   done
-  echo -e "  ${GREEN}✅ n8n running at http://localhost:5678${NC}"
+  # Detect public IP
+  PUBLIC_IP=$(curl -s https://api.ipify.org 2>/dev/null || curl -s https://ifconfig.me 2>/dev/null || echo "localhost")
+  N8N_ACCESS_URL="http://${PUBLIC_IP}:5678"
+  echo -e "  ${GREEN}✅ n8n running!${NC}"
   echo ""
-  echo "  → Open http://localhost:5678 in your browser"
+  echo -e "  → Open ${GREEN}${N8N_ACCESS_URL}${NC} in your browser"
   echo "  → Create an account, then go to: Settings → API → Create API Key"
   echo ""
 fi
