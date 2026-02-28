@@ -193,7 +193,7 @@ The WorkflowBuilder tool lets your agent build complex n8n workflows using Claud
 
 In n8n UI → Settings → Community Nodes → Install:
 ```
-n8n-nodes-claude-code
+n8n-nodes-claude-code-cli
 ```
 
 ### 2. Install Claude Code on your VPS
