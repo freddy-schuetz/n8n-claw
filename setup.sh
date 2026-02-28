@@ -80,12 +80,27 @@ ask() {
   export "$var"="$val"
 }
 
-# ── 3. Start n8n early so user can get API key ──────────────
+# ── 3. Generate all crypto keys BEFORE any docker start ─────
+if [ -z "$N8N_ENCRYPTION_KEY" ] || [[ "$N8N_ENCRYPTION_KEY" == "your_"* ]]; then
+  N8N_ENCRYPTION_KEY=$(openssl rand -hex 16)
+  grep -q "^N8N_ENCRYPTION_KEY=" .env && sed -i "s|^N8N_ENCRYPTION_KEY=.*|N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY|" .env || echo "N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY" >> .env
+fi
+if [ -z "$POSTGRES_PASSWORD" ] || [[ "$POSTGRES_PASSWORD" == "changeme" ]]; then
+  POSTGRES_PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 20)
+  grep -q "^POSTGRES_PASSWORD=" .env && sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$POSTGRES_PASSWORD|" .env || echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> .env
+fi
+if [ -z "$SUPABASE_JWT_SECRET" ]; then
+  SUPABASE_JWT_SECRET=$(openssl rand -base64 32)
+  grep -q "^SUPABASE_JWT_SECRET=" .env && sed -i "s|^SUPABASE_JWT_SECRET=.*|SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET|" .env || echo "SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET" >> .env
+fi
+_load_env
+
+# ── 4. Start n8n early so user can get API key ──────────────
 if [ -z "$N8N_API_KEY" ] || [[ "$N8N_API_KEY" == your_* ]]; then
   echo -e "\n${GREEN}🐳 Starting n8n...${NC}"
-  N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-$(openssl rand -base64 24)} \
-  POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme} \
-  SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-$(openssl rand -base64 32)} \
+  N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY \
+  POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
+  SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET \
     docker compose up -d n8n 2>&1 | grep -v "^#" | grep -v "^$" || true
 
   echo "  Waiting for n8n to start..."
@@ -115,19 +130,21 @@ ask "TELEGRAM_CHAT_ID"   "Your Telegram Chat ID (from @userinfobot)" "" 0
 _load_env
 echo -e "${GREEN}✅ Configuration saved${NC}"
 
-# ── 5. Generate keys if missing ─────────────────────────────
+# ── 5. Generate keys if missing (BEFORE starting any service) ─
 if [ -z "$SUPABASE_JWT_SECRET" ]; then
   SUPABASE_JWT_SECRET=$(openssl rand -base64 32)
-  echo "SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET" >> .env
+  grep -q "^SUPABASE_JWT_SECRET=" .env && sed -i "s|^SUPABASE_JWT_SECRET=.*|SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET|" .env || echo "SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET" >> .env
 fi
-if [ -z "$N8N_ENCRYPTION_KEY" ]; then
-  N8N_ENCRYPTION_KEY=$(openssl rand -base64 24)
-  echo "N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY" >> .env
+if [ -z "$N8N_ENCRYPTION_KEY" ] || [[ "$N8N_ENCRYPTION_KEY" == "your_"* ]]; then
+  N8N_ENCRYPTION_KEY=$(openssl rand -hex 16)
+  grep -q "^N8N_ENCRYPTION_KEY=" .env && sed -i "s|^N8N_ENCRYPTION_KEY=.*|N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY|" .env || echo "N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY" >> .env
 fi
 if [ -z "$POSTGRES_PASSWORD" ] || [[ "$POSTGRES_PASSWORD" == "changeme" ]]; then
   POSTGRES_PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 20)
-  echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> .env
+  grep -q "^POSTGRES_PASSWORD=" .env && sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$POSTGRES_PASSWORD|" .env || echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> .env
 fi
+_load_env
+echo -e "  ${GREEN}✅ Crypto keys ready${NC}"
 
 # Generate Supabase JWT tokens if not set
 if [ -z "$SUPABASE_SERVICE_KEY" ] || [[ "$SUPABASE_SERVICE_KEY" == "your_"* ]]; then
@@ -169,12 +186,16 @@ N8N_WEBHOOK_URL=${N8N_URL:-http://localhost:5678} \
 TIMEZONE=${TIMEZONE:-Europe/Berlin} \
   docker compose up -d 2>&1 | tail -5
 
-echo "  Waiting for database..."
-for i in {1..30}; do
-  PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres -c "SELECT 1" > /dev/null 2>&1 && break
+echo "  Waiting for database (up to 60s on first start)..."
+for i in {1..60}; do
+  PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -p 5432 -U postgres -d postgres -c "SELECT 1" > /dev/null 2>&1 && break
   sleep 2; echo -n "."
 done
 echo ""
+if ! PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -p 5432 -U postgres -d postgres -c "SELECT 1" > /dev/null 2>&1; then
+  echo -e "${RED}❌ Database failed to start. Check: docker logs n8n-claw-db${NC}"
+  exit 1
+fi
 echo -e "  ${GREEN}✅ All services running${NC}"
 
 # ── 8. Apply DB schema ───────────────────────────────────────
