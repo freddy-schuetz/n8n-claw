@@ -64,7 +64,7 @@ The script will:
 10. **Wire workflow references** (MCP Builder, Reminders, etc.)
 11. **Activate the agent** automatically
 
-### Step 3 — Add credentials in n8n UI
+### Step 2 — Add credentials in n8n UI
 
 Open n8n at the URL shown at the end of setup.
 
@@ -88,7 +88,7 @@ The easiest way is to open each workflow and click **"Create new credential"** d
 - Select `Anthropic API` as the chat model
 - *(not set automatically due to n8n credential linking)*
 
-### Step 4 — Activate all workflows
+### Step 3 — Activate all workflows
 
 In n8n UI, toggle **all** of these on:
 
@@ -101,7 +101,7 @@ In n8n UI, toggle **all** of these on:
 | 🌤️ MCP: Weather | Example MCP Server — weather via Open-Meteo (no API key) |
 | ⚙️ WorkflowBuilder | Builds general n8n automations |
 
-### Step 5 — Start chatting
+### Step 4 — Start chatting
 
 Send a message to your Telegram bot. It's ready!
 
