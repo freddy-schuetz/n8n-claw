@@ -3,7 +3,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "name": "MCP: Wetter",
+  "name": "MCP: Weather",
   "connections": {
     "get_weather": {
       "ai_tool": [
@@ -34,7 +34,7 @@
     },
     {
       "parameters": {
-        "description": "Aktuelles Wetter und 3-Tage-Vorhersage fuer eine Stadt",
+        "description": "Aktuelles Weather und 3-Tage-Vorhersage fuer eine city",
         "jsCode": "const city = query.city || 'Essen';\nconst geo = await helpers.httpRequest({method:'GET',url:'https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(city)+'&count=1&language=de'});\nif(!geo.results||geo.results.length===0) return 'Stadt nicht gefunden: '+city;\nconst lat=geo.results[0].latitude,lon=geo.results[0].longitude,name=geo.results[0].name;\nconst w = await helpers.httpRequest({method:'GET',url:'https://api.open-meteo.com/v1/forecast?latitude='+lat+'&longitude='+lon+'&current_weather=true&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&timezone=Europe/Berlin&forecast_days=3'});\nconst cw=w.current_weather,d=w.daily;\nlet r=name+': '+cw.temperature+'C, Wind '+cw.windspeed+' km/h\\n';\nconst labels=['heute','morgen','uebermorgen'];\nfor(let i=0;i<3;i++) r+=labels[i]+': '+d.temperature_2m_min[i]+'-'+d.temperature_2m_max[i]+'C, '+d.precipitation_probability_max[i]+'% Regen, Wind '+d.windspeed_10m_max[i]+' km/h\\n';\nreturn r;",
         "specifyInputSchema": true,
         "jsonSchemaExample": "{\"city\":\"Essen\"}"

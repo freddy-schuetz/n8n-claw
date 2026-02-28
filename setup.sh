@@ -347,7 +347,7 @@ for f in workflows/*.json; do
 done
 
 declare -A WF_IDS
-IMPORT_ORDER="mcp-client caldav-sub-workflow reminder-factory mcp-wetter-example workflow-builder mcp-builder n8n-claw-agent"
+IMPORT_ORDER="mcp-client reminder-factory mcp-weather-example workflow-builder mcp-builder n8n-claw-agent"
 
 for name in $IMPORT_ORDER; do
   f="workflows/deployed/${name}.json"
@@ -379,7 +379,7 @@ raw = sys.stdin.read()
 replacements = {
   'REPLACE_REMINDER_FACTORY_ID': '${WF_IDS[reminder-factory]}',
   'REPLACE_WORKFLOW_BUILDER_ID': '${WF_IDS[workflow-builder]}',
-  'REPLACE_CALDAV_ID':           '${WF_IDS[caldav-sub-workflow]}',
+
   'REPLACE_MCP_BUILDER_ID':      '${WF_IDS[mcp-builder]}',
 }
 for placeholder, real_id in replacements.items():
@@ -396,7 +396,7 @@ print(json.dumps({'name': wf['name'], 'nodes': nodes, 'connections': conns, 'set
       -H "Content-Type: application/json" -d @- > /dev/null
     echo "  ✅ Reminder:        ${WF_IDS[reminder-factory]}"
     echo "  ✅ WorkflowBuilder: ${WF_IDS[workflow-builder]}"
-    echo "  ✅ CalDAV:          ${WF_IDS[caldav-sub-workflow]}"
+  
     echo "  ✅ MCP Builder:     ${WF_IDS[mcp-builder]}"
   fi
 fi
@@ -627,6 +627,12 @@ echo "       Name: 'Anthropic API'  |  Key: your key"
 echo "    4. Activate workflows:"
 echo "       → 🤖 n8n-claw Agent  (ID: ${WF_IDS['n8n-claw-agent']})"
 echo "       → 🏗️  MCP Builder    (ID: ${WF_IDS['mcp-builder']})"
+echo ""
+echo -e "  ${YELLOW}⚠️  MCP Builder extra step:${NC}"
+echo "     Open MCP Builder workflow → click the LLM node"
+echo "     → select 'Anthropic API' as the chat model"
+echo "     (not set by default due to n8n credential linking)"
+echo ""
 echo "    5. Message your Telegram bot!"
 echo ""
 if [ -z "$DOMAIN" ]; then

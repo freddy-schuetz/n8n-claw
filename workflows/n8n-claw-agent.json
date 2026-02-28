@@ -15,6 +15,9 @@
             "index": 0
           }
         ]
+      ],
+      "ai_tool": [
+        []
       ]
     },
     "Load Soul": {
@@ -26,6 +29,9 @@
             "index": 0
           }
         ]
+      ],
+      "ai_tool": [
+        []
       ]
     },
     "Load Agents Config": {
@@ -37,6 +43,9 @@
             "index": 0
           }
         ]
+      ],
+      "ai_tool": [
+        []
       ]
     },
     "Load User Profile": {
@@ -48,6 +57,9 @@
             "index": 0
           }
         ]
+      ],
+      "ai_tool": [
+        []
       ]
     },
     "Load Conversation History": {
@@ -59,6 +71,9 @@
             "index": 0
           }
         ]
+      ],
+      "ai_tool": [
+        []
       ]
     },
     "Build System Prompt": {
@@ -70,6 +85,9 @@
             "index": 0
           }
         ]
+      ],
+      "ai_tool": [
+        []
       ]
     },
     "AI Agent": {
@@ -81,6 +99,9 @@
             "index": 0
           }
         ]
+      ],
+      "ai_tool": [
+        []
       ]
     },
     "Claude": {
@@ -92,6 +113,9 @@
             "index": 0
           }
         ]
+      ],
+      "ai_tool": [
+        []
       ]
     },
     "Memory Search": {
@@ -157,6 +181,9 @@
             "index": 0
           }
         ]
+      ],
+      "ai_tool": [
+        []
       ]
     },
     "Reminder": {
@@ -171,17 +198,6 @@
       ]
     },
     "WorkflowBuilder": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Kalender": {
       "ai_tool": [
         [
           {
@@ -587,32 +603,6 @@
       "typeVersion": 2.2,
       "position": [
         2112,
-        208
-      ]
-    },
-    {
-      "parameters": {
-        "description": "Read and create calendar events via CalDAV. Use for: 'what do I have today/this week', 'schedule a meeting', 'create appointment'. Input: JSON with action ('list' or 'create'). List: {\"action\": \"list\", \"days\": 7} — events for next N days. Create: {\"action\": \"create\", \"summary\": \"Title\", \"dtstart\": \"20260301T100000\", \"dtend\": \"20260301T110000\"}.",
-        "workflowId": {
-          "__rl": true,
-          "value": "REPLACE_CALDAV_ID",
-          "mode": "id"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {},
-          "matchingColumns": [],
-          "schema": [],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        }
-      },
-      "id": "tool-caldav",
-      "name": "Kalender",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        2240,
         208
       ]
     },
