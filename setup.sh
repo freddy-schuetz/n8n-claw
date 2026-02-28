@@ -278,11 +278,15 @@ echo -e "\n${GREEN}🔑 Creating n8n credentials...${NC}"
 N8N_BASE="${N8N_URL:-http://localhost:5678}"
 
 create_cred() {
-  curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
+  set +e
+  local result
+  result=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
     -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
     -H "Content-Type: application/json" \
     -d "{\"name\":\"$1\",\"type\":\"$2\",\"data\":$3}" | \
-    python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id','ERR'))" 2>/dev/null
+    python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+  set -e
+  echo "$result"
 }
 
 TELEGRAM_CRED_ID=$(create_cred "Telegram Bot" "telegramApi" "{\"accessToken\":\"${TELEGRAM_BOT_TOKEN}\"}")
@@ -308,11 +312,12 @@ CRED_JSON=$(cat <<CREDJSON
 CREDJSON
 )
 echo "$CRED_JSON" > /tmp/pg-cred.json
+set +e
 POSTGRES_CRED_ID=$(docker compose run --rm -T n8n \
   n8n import:credentials --input=/tmp/pg-cred.json 2>/dev/null | \
   grep -oP '(?<=ID )\S+' | tail -1)
 
-# Fallback: try REST API with stringified data
+# Fallback: try REST API
 if [ -z "$POSTGRES_CRED_ID" ]; then
   POSTGRES_CRED_ID=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
     -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
@@ -320,6 +325,7 @@ if [ -z "$POSTGRES_CRED_ID" ]; then
     -d "{\"name\":\"Supabase Postgres\",\"type\":\"postgres\",\"data\":{\"host\":\"db\",\"database\":\"postgres\",\"user\":\"postgres\",\"password\":\"${POSTGRES_PASSWORD}\",\"port\":5432,\"ssl\":\"disable\",\"allowUnauthorizedCerts\":true,\"sshTunnel\":false,\"sshAuthenticateWith\":\"password\"}}" | \
     python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
 fi
+set -e
 
 if [ -z "$POSTGRES_CRED_ID" ]; then
   echo -e "  ${YELLOW}⚠️  Postgres credential — add manually in n8n UI:${NC}"
