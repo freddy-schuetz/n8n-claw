@@ -80,25 +80,38 @@ echo -e "${GREEN}🚀 n8n-claw Setup${NC}"
 echo "=============================="
 
 # ── 0. Install dependencies if missing ─────────────────────
+# Check root
+if [ "$(id -u)" != "0" ]; then
+  echo -e "${RED}❌ Please run as root: sudo ./setup.sh${NC}"
+  exit 1
+fi
+
+# Install curl if missing
+if ! command -v curl &>/dev/null; then
+  echo -e "${YELLOW}📦 Installing curl...${NC}"
+  apt-get update -qq && apt-get install -y curl
+fi
+
 if ! command -v docker &>/dev/null; then
-  echo -e "\n${YELLOW}🐳 Docker not found — installing...${NC}"
+  echo -e "\n${YELLOW}🐳 Installing Docker (this takes ~1 min)...${NC}"
   curl -fsSL https://get.docker.com | sh
-  systemctl enable docker --now 2>/dev/null || true
-  echo -e "  ${GREEN}✅ Docker installed${NC}"
+  systemctl enable docker --now
+  echo -e "  ${GREEN}✅ Docker $(docker --version | cut -d' ' -f3) installed${NC}"
 fi
 
 if ! docker compose version &>/dev/null; then
-  echo -e "\n${YELLOW}📦 Docker Compose plugin not found — installing...${NC}"
-  apt-get install -y docker-compose-plugin 2>/dev/null || \
-    pip3 install docker-compose 2>/dev/null || true
+  echo -e "\n${YELLOW}📦 Installing Docker Compose plugin...${NC}"
+  apt-get install -y docker-compose-plugin
   echo -e "  ${GREEN}✅ Docker Compose installed${NC}"
 fi
 
 if ! command -v psql &>/dev/null; then
-  echo -e "\n${YELLOW}🗄️  psql not found — installing...${NC}"
-  apt-get install -y postgresql-client 2>/dev/null || true
+  echo -e "\n${YELLOW}🗄️  Installing psql...${NC}"
+  apt-get install -y postgresql-client
   echo -e "  ${GREEN}✅ psql installed${NC}"
 fi
+
+echo -e "${GREEN}✅ All dependencies ready${NC}"
 
 # ── 1. Generate JWT tokens if not set ──────────────────────
 if [ -z "$SUPABASE_JWT_SECRET" ]; then
