@@ -291,7 +291,7 @@ create_cred() {
 
 ANTHROPIC_CRED_ID="${ANTHROPIC_CRED_ID:-REPLACE_WITH_YOUR_CREDENTIAL_ID}"
 TELEGRAM_CRED_ID=$(create_cred "Telegram Bot" "telegramApi" "{\"accessToken\":\"${TELEGRAM_BOT_TOKEN}\"}")
-echo "  ✅ Telegram Bot → ${TELEGRAM_CRED_ID}"
+[ -z "$TELEGRAM_CRED_ID" ] && echo -e "  ${RED}❌ Telegram credential failed${NC}" || echo "  ✅ Telegram Bot → ${TELEGRAM_CRED_ID}"
 
 # Postgres credential via n8n CLI (only way that works reliably)
 CRED_JSON=$(cat <<CREDJSON
@@ -362,7 +362,9 @@ mkdir -p workflows/deployed
 
 for f in workflows/*.json; do
   out="workflows/deployed/$(basename $f)"
-  sed \
+  cp "$f" "$out"
+  # Basic placeholder replacements
+  sed -i \
     -e "s|{{N8N_URL}}|${N8N_URL:-http://localhost:5678}|g" \
     -e "s|{{N8N_INTERNAL_URL}}|http://172.17.0.1:5678|g" \
     -e "s|{{N8N_API_KEY}}|${N8N_API_KEY}|g" \
@@ -370,10 +372,12 @@ for f in workflows/*.json; do
     -e "s|{{SUPABASE_SERVICE_KEY}}|${SUPABASE_SERVICE_KEY}|g" \
     -e "s|{{SUPABASE_ANON_KEY}}|${SUPABASE_ANON_KEY}|g" \
     -e "s|{{TELEGRAM_CHAT_ID}}|${TELEGRAM_CHAT_ID}|g" \
-    -e "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Anthropic API\"|${ANTHROPIC_CRED_ID}\", \"name\": \"Anthropic API\"|g" \
-    -e "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Telegram Bot\"|${TELEGRAM_CRED_ID}\", \"name\": \"Telegram Bot\"|g" \
-    -e "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Supabase Postgres\"|${POSTGRES_CRED_ID}\", \"name\": \"Supabase Postgres\"|g" \
-    "$f" > "$out"
+    "$out"
+  # Credential ID replacements — only if IDs are actually set
+  [ -n "$TELEGRAM_CRED_ID" ] && [ "$TELEGRAM_CRED_ID" != "ERR" ] && \
+    sed -i "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Telegram Bot\"|${TELEGRAM_CRED_ID}\", \"name\": \"Telegram Bot\"|g" "$out"
+  [ -n "$POSTGRES_CRED_ID" ] && [ "$POSTGRES_CRED_ID" != "REPLACE_WITH_YOUR_CREDENTIAL_ID" ] && \
+    sed -i "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Supabase Postgres\"|${POSTGRES_CRED_ID}\", \"name\": \"Supabase Postgres\"|g" "$out"
 done
 
 declare -A WF_IDS
