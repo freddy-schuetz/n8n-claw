@@ -7,7 +7,20 @@ set -e
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
 [ ! -f .env ] && cp .env.example .env
-source .env
+
+# Safe .env loader: strips comments, spaces around =, skips blanks
+_load_env() {
+  while IFS= read -r line; do
+    # skip comments and empty lines
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// }" ]] && continue
+    # strip inline comments and spaces around =
+    line="${line%%#*}"
+    line="$(echo "$line" | sed 's/[[:space:]]*=[[:space:]]*/=/')"
+    [[ "$line" =~ ^[A-Z_]+=.* ]] && export "$line" 2>/dev/null || true
+  done < .env
+}
+_load_env
 
 ask() {
   local var="$1" prompt="$2" current="$3" secret="$4"
@@ -57,7 +70,7 @@ ask "TELEGRAM_BOT_TOKEN" "Telegram Bot Token (from @BotFather)"      "$TELEGRAM_
 ask "TELEGRAM_CHAT_ID"   "Your Telegram Chat ID (from @userinfobot)" "$TELEGRAM_CHAT_ID" 0
 
 # Reload .env with new values
-source .env
+_load_env
 echo -e "\n${GREEN}✅ Configuration saved to .env${NC}"
 
 echo -e "${GREEN}🚀 n8n-claw Setup${NC}"
