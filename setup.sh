@@ -273,74 +273,10 @@ LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d p
   -f supabase/migrations/001_schema.sql > /dev/null 2>&1
 echo "  ✅ Schema applied"
 
-# ── 9. Create n8n credentials ────────────────────────────────
-echo -e "\n${GREEN}🔑 Creating n8n credentials...${NC}"
 N8N_BASE="${N8N_URL:-http://localhost:5678}"
-
-create_cred() {
-  set +e
-  local raw_response
-  raw_response=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
-    -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
-    -H "Content-Type: application/json" \
-    -d "{\"name\":\"$1\",\"type\":\"$2\",\"data\":$3}")
-  local result
-  result=$(echo "$raw_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
-  # Debug: show raw response if id is empty
-  if [ -z "$result" ]; then
-    echo "[DEBUG] credential '$1' API response: $(echo "$raw_response" | head -c 200)" >&2
-  fi
-  set -e
-  echo "$result"
-}
-
 ANTHROPIC_CRED_ID="${ANTHROPIC_CRED_ID:-REPLACE_WITH_YOUR_CREDENTIAL_ID}"
-TELEGRAM_CRED_ID=$(create_cred "Telegram Bot" "telegramApi" "{\"accessToken\":\"${TELEGRAM_BOT_TOKEN}\"}")
-[ -z "$TELEGRAM_CRED_ID" ] && echo -e "  ${RED}❌ Telegram credential failed${NC}" || echo "  ✅ Telegram Bot → ${TELEGRAM_CRED_ID}"
-
-# Postgres credential via n8n CLI (only way that works reliably)
-CRED_JSON=$(cat <<CREDJSON
-{
-  "name": "Supabase Postgres",
-  "type": "postgres",
-  "data": {
-    "host": "db",
-    "database": "postgres",
-    "user": "postgres",
-    "password": "${POSTGRES_PASSWORD}",
-    "port": 5432,
-    "ssl": "disable",
-    "allowUnauthorizedCerts": true,
-    "sshTunnel": false,
-    "sshAuthenticateWith": "password"
-  }
-}
-CREDJSON
-)
-echo "$CRED_JSON" > /tmp/pg-cred.json
-set +e
-POSTGRES_CRED_ID=$(docker compose run --rm -T n8n \
-  n8n import:credentials --input=/tmp/pg-cred.json 2>/dev/null | \
-  grep -oP '(?<=ID )\S+' | tail -1)
-
-# Fallback: try REST API
-if [ -z "$POSTGRES_CRED_ID" ]; then
-  POSTGRES_CRED_ID=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
-    -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
-    -H "Content-Type: application/json" \
-    -d "{\"name\":\"Supabase Postgres\",\"type\":\"postgres\",\"data\":{\"host\":\"db\",\"database\":\"postgres\",\"user\":\"postgres\",\"password\":\"${POSTGRES_PASSWORD}\",\"port\":5432,\"ssl\":\"disable\",\"allowUnauthorizedCerts\":true,\"sshTunnel\":false,\"sshAuthenticateWith\":\"password\"}}" | \
-    python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-fi
-set -e
-
-if [ -z "$POSTGRES_CRED_ID" ]; then
-  echo -e "  ${YELLOW}⚠️  Postgres credential — add manually in n8n UI:${NC}"
-  echo -e "     Settings → Credentials → New → Postgres"
-  echo -e "     Host: db  |  DB: postgres  |  User: postgres  |  Password: ${POSTGRES_PASSWORD}"
-  POSTGRES_CRED_ID="REPLACE_WITH_YOUR_CREDENTIAL_ID"
-else
-  echo "  ✅ Supabase Postgres → ${POSTGRES_CRED_ID}"
-fi
+POSTGRES_CRED_ID="REPLACE_WITH_YOUR_CREDENTIAL_ID"
+TELEGRAM_CRED_ID=""
 
 # ── 10. Wait for n8n API to be ready ────────────────────────
 echo -e "\n${GREEN}⏳ Waiting for n8n API...${NC}"
@@ -360,8 +296,44 @@ if [ "$STATUS" != "200" ]; then
   exit 1
 fi
 
+# ── 10b. Create n8n credentials (after API is confirmed ready) ──
+echo -e "\n${GREEN}🔑 Creating n8n credentials...${NC}"
+set +e
+
+create_cred() {
+  local raw_response
+  raw_response=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
+    -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"$1\",\"type\":\"$2\",\"data\":$3}")
+  local result
+  result=$(echo "$raw_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+  echo "$result"
+}
+
+TELEGRAM_CRED_ID=$(create_cred "Telegram Bot" "telegramApi" "{\"accessToken\":\"${TELEGRAM_BOT_TOKEN}\"}")
+[ -z "$TELEGRAM_CRED_ID" ] && echo -e "  ${YELLOW}⚠️  Telegram credential failed — will patch from existing${NC}" || echo "  ✅ Telegram Bot → ${TELEGRAM_CRED_ID}"
+
+# Postgres: try n8n CLI first, then REST
+cat > /tmp/pg-cred.json <<PGEOF
+{"name":"Supabase Postgres","type":"postgres","data":{"host":"db","database":"postgres","user":"postgres","password":"${POSTGRES_PASSWORD}","port":5432,"ssl":"disable","allowUnauthorizedCerts":true,"sshTunnel":false,"sshAuthenticateWith":"password"}}
+PGEOF
+POSTGRES_CRED_ID=$(docker compose run --rm -T n8n \
+  n8n import:credentials --input=/tmp/pg-cred.json 2>/dev/null | \
+  grep -oP '(?<=ID )\S+' | tail -1)
+[ -z "$POSTGRES_CRED_ID" ] && \
+  POSTGRES_CRED_ID=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
+    -H "X-N8N-API-KEY: ${N8N_API_KEY}" -H "Content-Type: application/json" \
+    -d @/tmp/pg-cred.json | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+if [ -z "$POSTGRES_CRED_ID" ]; then
+  echo -e "  ${YELLOW}⚠️  Postgres credential — add manually:${NC}"
+  echo "     Host: db | DB: postgres | User: postgres | Pass: ${POSTGRES_PASSWORD} | SSL: disable"
+  POSTGRES_CRED_ID="REPLACE_WITH_YOUR_CREDENTIAL_ID"
+else
+  echo "  ✅ Supabase Postgres → ${POSTGRES_CRED_ID}"
+fi
+
 # ── 11. Prepare + import workflows ──────────────────────────
-set +e  # credential IDs might be empty, don't abort
 echo -e "\n${GREEN}📦 Importing workflows...${NC}"
 mkdir -p workflows/deployed
 
