@@ -540,7 +540,7 @@
     },
     {
       "parameters": {
-        "description": "Set a timed reminder that sends a Telegram message at the specified time. Provide 'time' as ISO 8601 (e.g. 2026-02-22T22:30:00+01:00) and 'message' as the reminder text.",
+        "description": "Set a timed reminder that sends a Telegram message at a specific time. Use when user says 'remind me at...', 'remind me in X minutes/hours'. Input: time as ISO 8601 (e.g. 2026-03-01T10:00:00+01:00) and message text.",
         "workflowId": {
           "__rl": true,
           "value": "REPLACE_REMINDER_FACTORY_ID",
@@ -566,7 +566,7 @@
     },
     {
       "parameters": {
-        "description": "Erstellt NEUE n8n Workflows für allgemeine Automatisierungen und Integrationen. NICHT für MCP Server verwenden — dafür gibt es mcp_builder. NICHT als Fallback wenn andere Tools fehlschlagen.",
+        "description": "Builds new n8n workflows for general automations and integrations. Use when the user explicitly wants to automate something or build an integration workflow. NOT for MCP servers — use mcp_builder for that. NOT as a fallback when other tools fail. Input: JSON with 'task' (description of the automation to build).",
         "workflowId": {
           "__rl": true,
           "value": "REPLACE_WORKFLOW_BUILDER_ID",
@@ -592,7 +592,7 @@
     },
     {
       "parameters": {
-        "description": "Nextcloud Kalender: Termine lesen und erstellen. Input: JSON mit 'action' ('list' oder 'create'). Für list: {\"action\": \"list\", \"days\": 7} — Termine der nächsten X Tage. Für create: {\"action\": \"create\", \"summary\": \"Titel\", \"dtstart\": \"20260301T100000\", \"dtend\": \"20260301T110000\", \"description\": \"optional\", \"location\": \"optional\"}",
+        "description": "Read and create calendar events via CalDAV. Use for: 'what do I have today/this week', 'schedule a meeting', 'create appointment'. Input: JSON with action ('list' or 'create'). List: {\"action\": \"list\", \"days\": 7} — events for next N days. Create: {\"action\": \"create\", \"summary\": \"Title\", \"dtstart\": \"20260301T100000\", \"dtend\": \"20260301T110000\"}.",
         "workflowId": {
           "__rl": true,
           "value": "REPLACE_CALDAV_ID",
@@ -619,7 +619,7 @@
     {
       "parameters": {
         "name": "mcp_builder",
-        "description": "Erstellt einen neuen MCP Server Workflow. IMMER dieses Tool verwenden wenn der User einen MCP Server oder MCP Tool bauen will — niemals WorkflowBuilder dafür. Bei Fehler: Fehler direkt melden, NICHT auf WorkflowBuilder ausweichen. Parameter: task (was der MCP Server können soll).",
+        "description": "Builds a new MCP Server workflow in n8n. ALWAYS use this when the user wants to build an MCP server, MCP tool, or API integration as MCP. NEVER use WorkflowBuilder for MCP. On error: report the error, do NOT fall back to WorkflowBuilder. Input: JSON with 'task' (description of what the server should do). After build: user must deactivate + reactivate the workflow in n8n UI (webhook registration bug).",
         "workflowId": {
           "__rl": true,
           "value": "REPLACE_MCP_BUILDER_ID",
@@ -645,7 +645,7 @@
     },
     {
       "parameters": {
-        "description": "Ruft ein Tool auf einem MCP Server auf. Parameter: mcp_url (Server-URL), tool_name (Tool-Name), arguments (JSON Objekt mit Tool-Parametern). Beispiel OpenLibrary: mcp_url={{N8N_URL}}/mcp/openlibrary-api, tool_name=get_book_by_isbn, arguments={\"isbn\":\"9783442744916\"}. Beispiel Wetter: mcp_url={{N8N_URL}}/mcp/wetter, tool_name=get_weather, arguments={\"city\":\"Essen\"}.",
+        "description": "Calls a tool on an MCP server. Use when the user asks something that an available MCP server can answer (weather, book lookup, etc.). Required parameters: mcp_url (server URL), tool_name (tool to call), arguments (JSON object with parameters). Check mcp_registry table for available servers and their tools.",
         "jsCode": "// Debug: figure out what query actually is\nconst qType = typeof query;\nlet mcpUrl = '', toolName = '', args = {};\n\nif (qType === 'object' && query !== null) {\n  // query is already an object\n  mcpUrl = query.mcp_url || '';\n  toolName = query.tool_name || '';\n  args = query.arguments || {};\n} else if (qType === 'string') {\n  try {\n    const parsed = JSON.parse(query);\n    mcpUrl = parsed.mcp_url || '';\n    toolName = parsed.tool_name || '';\n    args = parsed.arguments || {};\n  } catch(e) {\n    return 'Parse error: query=' + String(query).substring(0,200) + ' type=' + qType;\n  }\n} else {\n  return 'Unexpected query type: ' + qType + ' value: ' + String(query).substring(0,200);\n}\n\nif (typeof args === 'string') try { args = JSON.parse(args); } catch(e) {}\nif (!mcpUrl || !toolName) return 'Fehler: mcp_url=' + mcpUrl + ' tool_name=' + toolName + ' (query type was: ' + qType + ')';\n\ntry {\n  // 1. Initialize\n  const init = await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream'},\n    body: JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'n8n-claw-mcp',version:'1.0'}}}),\n    returnFullResponse: true, encoding: 'utf-8', json: false\n  });\n  const sid = init.headers && init.headers['mcp-session-id'];\n  if (!sid) return 'MCP: Kein session-id. Body: ' + String(init.body||init).substring(0,200);\n\n  // 2. Initialized\n  await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},\n    body: JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'}),\n    json: false\n  });\n\n  // 3. Call tool\n  const resp = await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},\n    body: JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:toolName,arguments:args}}),\n    json: false\n  });\n\n  const bodyStr = String(resp);\n  const dataLine = bodyStr.split('\\n').find(l => l.startsWith('data: '));\n  if (!dataLine) return 'MCP: Keine Daten. Response: ' + bodyStr.substring(0,200);\n  const result = JSON.parse(dataLine.substring(6));\n  if (result.error) return 'MCP Error: ' + JSON.stringify(result.error);\n  return result.result?.content?.[0]?.text || JSON.stringify(result.result);\n} catch(e) {\n  return 'MCP Error: ' + e.message;\n}",
         "specifyInputSchema": false
       },
