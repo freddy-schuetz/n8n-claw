@@ -124,9 +124,12 @@ fi
 echo -e "${GREEN}⚙️  Configuration${NC}"
 echo "────────────────────────────"
 ask "N8N_API_KEY"        "n8n API Key (Settings → API → Create key)" "" 1
-ask "ANTHROPIC_API_KEY"  "Anthropic API Key (console.anthropic.com)" "" 1
 ask "TELEGRAM_BOT_TOKEN" "Telegram Bot Token (from @BotFather)"      "" 1
 ask "TELEGRAM_CHAT_ID"   "Your Telegram Chat ID (from @userinfobot)" "" 0
+echo ""
+echo -e "  ${YELLOW}Optional: Domain for HTTPS (required for Telegram webhooks)${NC}"
+echo "  Leave empty to skip (you can set up HTTPS later)"
+ask "DOMAIN" "Domain name (e.g. n8n.yourdomain.com, or press Enter to skip)" "" 0
 _load_env
 echo -e "${GREEN}✅ Configuration saved${NC}"
 
@@ -198,7 +201,69 @@ if ! PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -p 5432 -U postgres -d post
 fi
 echo -e "  ${GREEN}✅ All services running${NC}"
 
-# ── 8. Apply DB schema ───────────────────────────────────────
+# ── 8. Setup HTTPS (if domain provided) ─────────────────────
+if [ -n "$DOMAIN" ] && [[ "$DOMAIN" != "your_"* ]]; then
+  echo -e "\n${GREEN}🔒 Setting up HTTPS for ${DOMAIN}...${NC}"
+
+  # Install nginx + certbot
+  apt-get install -y nginx certbot python3-certbot-nginx -qq
+  systemctl stop nginx 2>/dev/null || true
+
+  # Get certificate
+  certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos \
+    --email "admin@${DOMAIN}" --no-eff-email 2>&1 | tail -3
+
+  # Write nginx config
+  cat > /etc/nginx/sites-available/n8n-claw << NGINX
+server {
+    listen 80;
+    server_name ${DOMAIN};
+    return 301 https://\$host\$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name ${DOMAIN};
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    location / {
+        proxy_pass http://localhost:5678;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+NGINX
+  ln -sf /etc/nginx/sites-available/n8n-claw /etc/nginx/sites-enabled/
+  rm -f /etc/nginx/sites-enabled/default
+  systemctl start nginx
+  systemctl enable nginx
+
+  # Update n8n webhook URL to HTTPS
+  sed -i "s|^N8N_WEBHOOK_URL=.*|N8N_WEBHOOK_URL=https://${DOMAIN}|" .env
+  sed -i "s|^N8N_HOST=.*|N8N_HOST=${DOMAIN}|" .env
+  sed -i "s|^N8N_PROTOCOL=.*|N8N_PROTOCOL=https|" .env
+  echo "N8N_SECURE_COOKIE=true" >> .env
+  _load_env
+
+  # Restart n8n with HTTPS config
+  N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
+  SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET N8N_WEBHOOK_URL="https://${DOMAIN}" \
+  N8N_HOST=$DOMAIN N8N_PROTOCOL=https N8N_SECURE_COOKIE=true \
+    docker compose up -d n8n > /dev/null 2>&1
+  sleep 5
+
+  echo -e "  ${GREEN}✅ HTTPS ready at https://${DOMAIN}${NC}"
+  N8N_ACCESS_URL="https://${DOMAIN}"
+else
+  echo -e "\n${YELLOW}⚠️  No domain configured — running on HTTP${NC}"
+  echo "  Telegram webhooks require HTTPS. Add a domain later and re-run setup.sh"
+fi
+
+# ── 9. Apply DB schema ───────────────────────────────────────
 echo -e "\n${GREEN}🗄️  Applying database schema...${NC}"
 PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres \
   -f supabase/migrations/001_schema.sql > /dev/null 2>&1
@@ -215,12 +280,6 @@ create_cred() {
     -d "{\"name\":\"$1\",\"type\":\"$2\",\"data\":$3}" | \
     python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id','ERR'))" 2>/dev/null
 }
-
-ANTHROPIC_CRED_ID=$(create_cred "Anthropic API" "anthropicApi" \
-  "{\"apiKey\":\"${ANTHROPIC_API_KEY}\",\"url\":\"\",\"header\":\"none\",\"headerName\":\"\",\"headerValue\":\"\"}")
-[ "$ANTHROPIC_CRED_ID" = "ERR" ] || [ -z "$ANTHROPIC_CRED_ID" ] && \
-  echo -e "  ${RED}❌ Anthropic credential failed — add manually in n8n UI${NC}" || \
-  echo "  ✅ Anthropic API → ${ANTHROPIC_CRED_ID}"
 
 TELEGRAM_CRED_ID=$(create_cred "Telegram Bot" "telegramApi" "{\"accessToken\":\"${TELEGRAM_BOT_TOKEN}\"}")
 echo "  ✅ Telegram Bot → ${TELEGRAM_CRED_ID}"
@@ -293,16 +352,15 @@ print(json.dumps({'name': wf['name'], 'nodes': nodes, 'connections': connections
       -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
       -H "Content-Type: application/json" -d @- > /dev/null
 
-    # Set WEBHOOK_URL to public HTTP URL before activating
-  PUBLIC_IP_NOW=$(curl -s --max-time 3 https://api.ipify.org 2>/dev/null || echo "localhost")
-  WEBHOOK_URL_NOW="http://${PUBLIC_IP_NOW}:5678"
-  grep -q "^N8N_WEBHOOK_URL=" .env && sed -i "s|^N8N_WEBHOOK_URL=.*|N8N_WEBHOOK_URL=${WEBHOOK_URL_NOW}|" .env || echo "N8N_WEBHOOK_URL=${WEBHOOK_URL_NOW}" >> .env
-  # Restart n8n with correct webhook URL
-  N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
-  SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET N8N_WEBHOOK_URL=$WEBHOOK_URL_NOW \
-  N8N_HOST=${PUBLIC_IP_NOW} N8N_PROTOCOL=http N8N_SECURE_COOKIE=false \
-    docker compose up -d n8n > /dev/null 2>&1
-  sleep 5
+    # Activate agent FIRST (wizard depends on it)
+  AGENT_ACTIVATE=$(curl -s -X POST "${N8N_BASE}/api/v1/workflows/${AGENT_ID}/activate" \
+    -H "X-N8N-API-KEY: ${N8N_API_KEY}")
+  AGENT_ACT_ERR=$(echo "$AGENT_ACTIVATE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null)
+  if [ -z "$AGENT_ACT_ERR" ]; then
+    echo -e "  ${GREEN}✅ n8n-claw Agent activated${NC}"
+  else
+    echo -e "  ${YELLOW}⚠️  Agent activation: ${AGENT_ACT_ERR}${NC}"
+  fi
 
   ACTIVATE_RESP=$(curl -s -X POST "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}/activate" \
       -H "X-N8N-API-KEY: ${N8N_API_KEY}")
@@ -335,14 +393,27 @@ echo -e "  ${GREEN}✅ Database seeded${NC}"
 
 # ── Done ─────────────────────────────────────────────────────
 PUBLIC_IP=$(curl -s --max-time 3 https://api.ipify.org 2>/dev/null || echo "YOUR-VPS-IP")
+N8N_FINAL_URL=${DOMAIN:+https://$DOMAIN}
+N8N_FINAL_URL=${N8N_FINAL_URL:-http://$PUBLIC_IP:5678}
+
 echo ""
 echo -e "${GREEN}🎉 Setup complete!${NC}"
 echo "=============================="
 echo ""
-echo "  n8n:  http://${PUBLIC_IP}:5678"
+echo "  n8n:  ${N8N_FINAL_URL}"
 echo ""
-echo "  Activate these workflows in n8n UI:"
-echo "    → 🤖 n8n-claw Agent  (ID: ${WF_IDS['n8n-claw-agent']})"
-echo "    → 🏗️  MCP Builder    (ID: ${WF_IDS['mcp-builder']})"
+echo "  Next steps:"
+echo "    1. Open ${N8N_FINAL_URL}"
+echo "    2. Add Anthropic API credential:"
+echo "       Settings → Credentials → New → Anthropic → paste your API key"
+echo "    3. Activate workflows:"
+echo "       → 🤖 n8n-claw Agent  (ID: ${WF_IDS['n8n-claw-agent']})"
+echo "       → 🏗️  MCP Builder    (ID: ${WF_IDS['mcp-builder']})"
+echo "       → 🚀 Setup Wizard    (ID: ${WF_IDS['setup-wizard']})"
 echo ""
-echo "  Then send /start to your Telegram bot → Setup Wizard runs!"
+echo "    4. Send /start to your Telegram bot → Setup Wizard runs!"
+if [ -z "$DOMAIN" ]; then
+echo ""
+echo -e "  ${YELLOW}HTTPS tip: For Telegram webhooks, point a domain to this server"
+echo -e "  then re-run: DOMAIN=n8n.yourdomain.com ./setup.sh${NC}"
+fi
