@@ -114,7 +114,70 @@ for f in workflows/*.json; do
   echo "  ✅ $(basename $f)"
 done
 
-# ── 6. Import workflows into n8n ───────────────────────────
+# ── 6. Create n8n credentials ──────────────────────────────
+echo -e "\n${GREEN}🔑 Creating n8n credentials...${NC}"
+
+N8N_BASE="${N8N_URL:-http://localhost:5678}"
+N8N_HEAD=(-H "X-N8N-API-KEY: ${N8N_API_KEY}" -H "Content-Type: application/json")
+
+create_credential() {
+  local name="$1"
+  local type="$2"
+  local data="$3"
+  local response
+  response=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
+    "${N8N_HEAD[@]}" \
+    -d "{\"name\":\"${name}\",\"type\":\"${type}\",\"data\":${data}}")
+  local cred_id
+  cred_id=$(echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id','ERROR: '+d.get('message','unknown')))" 2>/dev/null)
+  echo "  ${cred_id}"
+}
+
+# Anthropic
+if [ -n "$ANTHROPIC_API_KEY" ] && [ "$ANTHROPIC_API_KEY" != "your_anthropic_key" ]; then
+  ANTHROPIC_CRED_ID=$(create_credential \
+    "${N8N_CREDENTIAL_ANTHROPIC_NAME:-Anthropic API}" \
+    "anthropicApi" \
+    "{\"apiKey\":\"${ANTHROPIC_API_KEY}\"}")
+  echo "  ✅ Anthropic API → ${ANTHROPIC_CRED_ID}"
+else
+  echo -e "  ${YELLOW}⚠️  ANTHROPIC_API_KEY not set — skipping${NC}"
+fi
+
+# Telegram
+if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ "$TELEGRAM_BOT_TOKEN" != "your_bot_token" ]; then
+  TELEGRAM_CRED_ID=$(create_credential \
+    "${N8N_CREDENTIAL_TELEGRAM_NAME:-Telegram Bot}" \
+    "telegramApi" \
+    "{\"accessToken\":\"${TELEGRAM_BOT_TOKEN}\"}")
+  echo "  ✅ Telegram Bot → ${TELEGRAM_CRED_ID}"
+else
+  echo -e "  ${YELLOW}⚠️  TELEGRAM_BOT_TOKEN not set — skipping${NC}"
+fi
+
+# Supabase Postgres (direct DB access for some workflows)
+POSTGRES_CRED_ID=$(create_credential \
+  "${N8N_CREDENTIAL_POSTGRES_NAME:-Supabase Postgres}" \
+  "postgres" \
+  "{\"host\":\"db\",\"port\":5432,\"database\":\"postgres\",\"user\":\"postgres\",\"password\":\"${POSTGRES_PASSWORD:-changeme}\",\"ssl\":false}")
+echo "  ✅ Supabase Postgres → ${POSTGRES_CRED_ID}"
+
+# Patch workflow JSONs with real credential IDs
+if [ -n "$ANTHROPIC_CRED_ID" ] && [ "$ANTHROPIC_CRED_ID" != "ERROR"* ]; then
+  for f in workflows/deployed/*.json; do
+    python3 -c "
+import sys,json,re
+wf=json.load(open('$f'))
+s=json.dumps(wf)
+s=s.replace('\"id\": \"REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Anthropic API\"','\"id\": \"${ANTHROPIC_CRED_ID}\", \"name\": \"${N8N_CREDENTIAL_ANTHROPIC_NAME:-Anthropic API}\"')
+s=s.replace('\"id\": \"REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Telegram Bot\"','\"id\": \"${TELEGRAM_CRED_ID}\", \"name\": \"${N8N_CREDENTIAL_TELEGRAM_NAME:-Telegram Bot}\"')
+open('$f','w').write(s)
+" 2>/dev/null
+  done
+  echo "  ✅ Credential IDs patched into workflow files"
+fi
+
+# ── 7. Import workflows into n8n ───────────────────────────
 echo -e "\n${GREEN}📦 Importing workflows into n8n...${NC}"
 
 declare -A WF_IDS
@@ -193,12 +256,13 @@ echo ""
 echo "Next steps:"
 echo ""
 echo "  1. Open n8n: ${N8N_URL:-http://localhost:5678}"
-echo "  2. Add credentials:"
+if [ -z "$ANTHROPIC_API_KEY" ] || [ "$ANTHROPIC_API_KEY" = "your_anthropic_key" ]; then
+echo "  ⚠️  Add credentials manually in n8n UI:"
 echo "     → Anthropic API  (name it exactly: 'Anthropic API')"
 echo "     → Telegram Bot   (name it exactly: 'Telegram Bot', token: your bot token)"
-echo "     → Supabase Postgres (optional, for direct DB access)"
+fi
 echo ""
-echo "  3. Activate these workflows manually in n8n UI:"
+echo "  2. Activate these workflows manually in n8n UI:"
 echo "     → 🤖 Greg AI Agent (ID: ${WF_IDS['greg-ai-agent']})"
 echo "     → 🏗️ MCP Builder"
 echo "     → 📅 CalDAV Sub-Workflow"
