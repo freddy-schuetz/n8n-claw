@@ -425,13 +425,46 @@ print(json.dumps({'name': wf['name'], 'nodes': nodes, 'connections': conns, 'set
 " 2>/dev/null)
 
   if [ -n "$PATCHED" ]; then
-    echo "$PATCHED" | curl -s -X PUT "${N8N_BASE}/api/v1/workflows/${AGENT_WF_ID}" \
+    # Also patch credential IDs: fetch real IDs from n8n and replace
+    CRED_LIST=$(curl -s "${N8N_BASE}/api/v1/credentials" -H "X-N8N-API-KEY: ${N8N_API_KEY}")
+    REAL_TELEGRAM_ID=$(echo "$CRED_LIST" | python3 -c "
+import sys,json
+creds=json.load(sys.stdin).get('data',[])
+for c in creds:
+    if c.get('type')=='telegramApi': print(c['id']); break
+" 2>/dev/null)
+    REAL_ANTHROPIC_ID=$(echo "$CRED_LIST" | python3 -c "
+import sys,json
+creds=json.load(sys.stdin).get('data',[])
+for c in creds:
+    if c.get('type')=='anthropicApi': print(c['id']); break
+" 2>/dev/null)
+    REAL_POSTGRES_ID=$(echo "$CRED_LIST" | python3 -c "
+import sys,json
+creds=json.load(sys.stdin).get('data',[])
+for c in creds:
+    if c.get('type')=='postgres': print(c['id']); break
+" 2>/dev/null)
+
+    # Apply all replacements together via python
+    FINAL=$(echo "$PATCHED" | python3 -c "
+import sys, json
+raw = sys.stdin.read()
+if '${REAL_TELEGRAM_ID}': raw = raw.replace('REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Telegram Bot\"', '${REAL_TELEGRAM_ID}\", \"name\": \"Telegram Bot\"')
+if '${REAL_ANTHROPIC_ID}': raw = raw.replace('REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Anthropic API\"', '${REAL_ANTHROPIC_ID}\", \"name\": \"Anthropic API\"')
+if '${REAL_POSTGRES_ID}': raw = raw.replace('REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Supabase Postgres\"', '${REAL_POSTGRES_ID}\", \"name\": \"Supabase Postgres\"')
+print(raw)
+" 2>/dev/null)
+
+    echo "${FINAL:-$PATCHED}" | curl -s -X PUT "${N8N_BASE}/api/v1/workflows/${AGENT_WF_ID}" \
       -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
       -H "Content-Type: application/json" -d @- > /dev/null
     echo "  ✅ Reminder:        ${WF_IDS[reminder-factory]}"
     echo "  ✅ WorkflowBuilder: ${WF_IDS[workflow-builder]}"
-  
     echo "  ✅ MCP Builder:     ${WF_IDS[mcp-builder]}"
+    [ -n "$REAL_TELEGRAM_ID" ]  && echo "  ✅ Telegram cred:   ${REAL_TELEGRAM_ID}"
+    [ -n "$REAL_POSTGRES_ID" ]  && echo "  ✅ Postgres cred:   ${REAL_POSTGRES_ID}"
+    [ -n "$REAL_ANTHROPIC_ID" ] && echo "  ✅ Anthropic cred:  ${REAL_ANTHROPIC_ID} (if already added)"
   fi
 fi
 
