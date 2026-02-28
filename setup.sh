@@ -279,12 +279,17 @@ N8N_BASE="${N8N_URL:-http://localhost:5678}"
 
 create_cred() {
   set +e
-  local result
-  result=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
+  local raw_response
+  raw_response=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
     -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
     -H "Content-Type: application/json" \
-    -d "{\"name\":\"$1\",\"type\":\"$2\",\"data\":$3}" | \
-    python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+    -d "{\"name\":\"$1\",\"type\":\"$2\",\"data\":$3}")
+  local result
+  result=$(echo "$raw_response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+  # Debug: show raw response if id is empty
+  if [ -z "$result" ]; then
+    echo "[DEBUG] credential '$1' API response: $(echo "$raw_response" | head -c 200)" >&2
+  fi
   set -e
   echo "$result"
 }
