@@ -1,5 +1,45 @@
 {
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
   "name": "ReminderFactory",
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "BuildWF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildWF": {
+      "main": [
+        [
+          {
+            "node": "CreateWF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CreateWF": {
+      "main": [
+        [
+          {
+            "node": "ActivateWF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
   "nodes": [
     {
       "parameters": {
@@ -78,48 +118,5 @@
       ],
       "id": "65890105-eb7e-4e3d-b7a9-f8d67787faef"
     }
-  ],
-  "connections": {
-    "Start": {
-      "main": [
-        [
-          {
-            "node": "BuildWF",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "BuildWF": {
-      "main": [
-        [
-          {
-            "node": "CreateWF",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "CreateWF": {
-      "main": [
-        [
-          {
-            "node": "ActivateWF",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  },
-  "settings": {
-    "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false
-  },
-  "meta": {
-    "n8n-claw-repo": true
-  }
+  ]
 }

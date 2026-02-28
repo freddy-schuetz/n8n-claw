@@ -1,5 +1,220 @@
 {
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
   "name": "🤖 n8n-claw Agent",
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Soul",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Soul": {
+      "main": [
+        [
+          {
+            "node": "Load Agents Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Agents Config": {
+      "main": [
+        [
+          {
+            "node": "Load User Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load User Profile": {
+      "main": [
+        [
+          {
+            "node": "Load Conversation History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Conversation History": {
+      "main": [
+        [
+          {
+            "node": "Build System Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build System Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Save",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory Save": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Self Modify": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Save": {
+      "main": [
+        [
+          {
+            "node": "Save Conversation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Daily Log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reminder": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WorkflowBuilder": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kalender": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP Builder": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP Client": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
   "nodes": [
     {
       "parameters": {
@@ -441,223 +656,5 @@
         208
       ]
     }
-  ],
-  "connections": {
-    "Telegram Trigger": {
-      "main": [
-        [
-          {
-            "node": "Load Soul",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Load Soul": {
-      "main": [
-        [
-          {
-            "node": "Load Agents Config",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Load Agents Config": {
-      "main": [
-        [
-          {
-            "node": "Load User Profile",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Load User Profile": {
-      "main": [
-        [
-          {
-            "node": "Load Conversation History",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Load Conversation History": {
-      "main": [
-        [
-          {
-            "node": "Build System Prompt",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build System Prompt": {
-      "main": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "AI Agent": {
-      "main": [
-        [
-          {
-            "node": "Prepare Save",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Claude": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Memory Search": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Memory Save": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP Tool": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Self Modify": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Save": {
-      "main": [
-        [
-          {
-            "node": "Save Conversation",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Save Daily Log",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Telegram Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Reminder": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "WorkflowBuilder": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Kalender": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "MCP Builder": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "MCP Client": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  },
-  "settings": {
-    "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false
-  },
-  "meta": {
-    "n8n-claw-repo": true
-  }
+  ]
 }

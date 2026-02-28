@@ -216,15 +216,20 @@ create_cred() {
     python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id','ERR'))" 2>/dev/null
 }
 
-ANTHROPIC_CRED_ID=$(create_cred "Anthropic API" "anthropicApi" "{\"apiKey\":\"${ANTHROPIC_API_KEY}\"}")
-echo "  ✅ Anthropic API → ${ANTHROPIC_CRED_ID}"
+ANTHROPIC_CRED_ID=$(create_cred "Anthropic API" "anthropicApi" \
+  "{\"apiKey\":\"${ANTHROPIC_API_KEY}\",\"url\":\"\",\"header\":\"none\",\"headerName\":\"\",\"headerValue\":\"\"}")
+[ "$ANTHROPIC_CRED_ID" = "ERR" ] || [ -z "$ANTHROPIC_CRED_ID" ] && \
+  echo -e "  ${RED}❌ Anthropic credential failed — add manually in n8n UI${NC}" || \
+  echo "  ✅ Anthropic API → ${ANTHROPIC_CRED_ID}"
 
 TELEGRAM_CRED_ID=$(create_cred "Telegram Bot" "telegramApi" "{\"accessToken\":\"${TELEGRAM_BOT_TOKEN}\"}")
 echo "  ✅ Telegram Bot → ${TELEGRAM_CRED_ID}"
 
 POSTGRES_CRED_ID=$(create_cred "Supabase Postgres" "postgres" \
-  "{\"host\":\"db\",\"port\":5432,\"database\":\"postgres\",\"user\":\"postgres\",\"password\":\"${POSTGRES_PASSWORD}\",\"ssl\":false}")
-echo "  ✅ Supabase Postgres → ${POSTGRES_CRED_ID}"
+  "{\"host\":\"db\",\"database\":\"postgres\",\"user\":\"postgres\",\"password\":\"${POSTGRES_PASSWORD}\",\"port\":5432,\"ssl\":false,\"allowUnauthorizedCerts\":true}")
+[ "$POSTGRES_CRED_ID" = "ERR" ] || [ -z "$POSTGRES_CRED_ID" ] && \
+  echo -e "  ${YELLOW}⚠️  Postgres credential failed — optional, workflows still work${NC}" || \
+  echo "  ✅ Supabase Postgres → ${POSTGRES_CRED_ID}"
 
 # ── 10. Prepare + import workflows ──────────────────────────
 echo -e "\n${GREEN}📦 Importing workflows...${NC}"

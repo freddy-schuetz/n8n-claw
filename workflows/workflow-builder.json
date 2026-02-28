@@ -1,5 +1,45 @@
 {
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
   "name": "WorkflowBuilder",
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "BuildPrompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildPrompt": {
+      "main": [
+        [
+          {
+            "node": "Claude Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Code": {
+      "main": [
+        [
+          {
+            "node": "FormatOutput",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
   "nodes": [
     {
       "parameters": {
@@ -69,48 +109,5 @@
       ],
       "id": "wfb-output"
     }
-  ],
-  "connections": {
-    "Start": {
-      "main": [
-        [
-          {
-            "node": "BuildPrompt",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "BuildPrompt": {
-      "main": [
-        [
-          {
-            "node": "Claude Code",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Claude Code": {
-      "main": [
-        [
-          {
-            "node": "FormatOutput",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  },
-  "settings": {
-    "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false
-  },
-  "meta": {
-    "n8n-claw-repo": true
-  }
+  ]
 }

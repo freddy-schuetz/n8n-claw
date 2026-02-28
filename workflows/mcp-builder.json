@@ -1,5 +1,260 @@
 {
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
   "name": "🏗️ MCP Builder",
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Search API Docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildPrompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Tool": {
+      "main": [
+        [
+          {
+            "node": "Assemble & Deploy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble & Deploy": {
+      "main": [
+        [
+          {
+            "node": "Create Sub-Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Tool",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Result": {
+      "main": [
+        [
+          {
+            "node": "Register MCP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register MCP": {
+      "main": [
+        [
+          {
+            "node": "Fetch Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Registry": {
+      "main": [
+        [
+          {
+            "node": "Build Instructions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Instructions": {
+      "main": [
+        [
+          {
+            "node": "Update Agent Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Agent Config": {
+      "main": [
+        [
+          {
+            "node": "Finalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search API Docs": {
+      "main": [
+        [
+          {
+            "node": "Fetch Doc Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Doc Content": {
+      "main": [
+        [
+          {
+            "node": "BuildPrompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test MCP": {
+      "main": [
+        [
+          {
+            "node": "Test Passed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Passed?": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Fix Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Fix Prompt": {
+      "main": [
+        [
+          {
+            "node": "Fix LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fix LLM": {
+      "main": [
+        [
+          {
+            "node": "Patch & Retest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Patch & Retest": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fix Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Fix LLM",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Patch Tool Schema": {
+      "main": [
+        [
+          {
+            "node": "Build MCP JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Sub-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Patch Tool Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create MCP Workflow": {
+      "main": [
+        [
+          {
+            "node": "Test MCP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build MCP JSON": {
+      "main": [
+        [
+          {
+            "node": "Create MCP Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
   "nodes": [
     {
       "parameters": {
@@ -485,263 +740,5 @@
         "jsCode": "\nconst subId = $('Create Sub-Workflow').first().json.id;\nconst assembled = $('Assemble & Deploy').first().json;\nconst toolName = assembled.toolName;\nconst description = assembled.description;\nconst serverName = assembled.serverName;\nconst path = assembled.path;\nconst workflowInputsValue = JSON.parse(assembled.workflowInputsValue || '{}');\nconst workflowInputsSchema = JSON.parse(assembled.workflowInputsSchema || '[]');\n\nconst mcpWorkflow = {\n  name: 'MCP: ' + serverName,\n  settings: {},\n  nodes: [\n    {\n      id: 'mcp-trigger',\n      name: 'MCP Server Trigger',\n      type: '@n8n/n8n-nodes-langchain.mcpTrigger',\n      typeVersion: 2,\n      position: [0, 0],\n      parameters: {path: path, authentication: 'none'}\n    },\n    {\n      id: 'tool-wf',\n      name: toolName,\n      type: '@n8n/n8n-nodes-langchain.toolWorkflow',\n      typeVersion: 2.2,\n      position: [0, 300],\n      parameters: {\n        name: toolName,\n        description: description,\n        workflowId: {__rl: true, value: subId, mode: 'id'},\n        workflowInputs: {\n          mappingMode: 'defineBelow',\n          value: workflowInputsValue,\n          matchingColumns: [],\n          schema: workflowInputsSchema,\n          attemptToConvertTypes: false,\n          convertFieldsToString: false\n        }\n      }\n    }\n  ],\n  connections: {}\n};\nmcpWorkflow.connections[toolName] = {ai_tool: [[{node: 'MCP Server Trigger', type: 'ai_tool', index: 0}]]};\n\nreturn [{json: {mcpWorkflowJson: JSON.stringify(mcpWorkflow), subId, toolName, path, serverName}}];\n"
       }
     }
-  ],
-  "connections": {
-    "Start": {
-      "main": [
-        [
-          {
-            "node": "Search API Docs",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "BuildPrompt": {
-      "main": [
-        [
-          {
-            "node": "Generate Tool",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Generate Tool": {
-      "main": [
-        [
-          {
-            "node": "Assemble & Deploy",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Assemble & Deploy": {
-      "main": [
-        [
-          {
-            "node": "Create Sub-Workflow",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Anthropic Chat Model": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Generate Tool",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Result": {
-      "main": [
-        [
-          {
-            "node": "Register MCP",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Register MCP": {
-      "main": [
-        [
-          {
-            "node": "Fetch Registry",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fetch Registry": {
-      "main": [
-        [
-          {
-            "node": "Build Instructions",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build Instructions": {
-      "main": [
-        [
-          {
-            "node": "Update Agent Config",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update Agent Config": {
-      "main": [
-        [
-          {
-            "node": "Finalize Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Search API Docs": {
-      "main": [
-        [
-          {
-            "node": "Fetch Doc Content",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fetch Doc Content": {
-      "main": [
-        [
-          {
-            "node": "BuildPrompt",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Test MCP": {
-      "main": [
-        [
-          {
-            "node": "Test Passed?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Test Passed?": {
-      "main": [
-        [
-          {
-            "node": "Result",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Build Fix Prompt",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build Fix Prompt": {
-      "main": [
-        [
-          {
-            "node": "Fix LLM",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fix LLM": {
-      "main": [
-        [
-          {
-            "node": "Patch & Retest",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Patch & Retest": {
-      "main": [
-        [
-          {
-            "node": "Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fix Model": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Fix LLM",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Patch Tool Schema": {
-      "main": [
-        [
-          {
-            "node": "Build MCP JSON",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create Sub-Workflow": {
-      "main": [
-        [
-          {
-            "node": "Patch Tool Schema",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create MCP Workflow": {
-      "main": [
-        [
-          {
-            "node": "Test MCP",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build MCP JSON": {
-      "main": [
-        [
-          {
-            "node": "Create MCP Workflow",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  },
-  "settings": {
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false
-  },
-  "meta": {
-    "n8n-claw-repo": true
-  }
+  ]
 }

@@ -1,6 +1,59 @@
 {
-  "name": "🚀 Setup Wizard",
   "settings": {},
+  "name": "🚀 Setup Wizard",
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Setup Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Setup Done": {
+      "main": [
+        [
+          {
+            "node": "Setup Done?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Setup Done?": {
+      "main": [
+        [
+          {
+            "node": "Forward to Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wizard Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wizard Logic": {
+      "main": [
+        [
+          {
+            "node": "Send Wizard Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
   "nodes": [
     {
       "id": "trigger",
@@ -123,58 +176,5 @@
         "waitForSubWorkflow": false
       }
     }
-  ],
-  "connections": {
-    "Telegram Trigger": {
-      "main": [
-        [
-          {
-            "node": "Check Setup Done",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Setup Done": {
-      "main": [
-        [
-          {
-            "node": "Setup Done?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Setup Done?": {
-      "main": [
-        [
-          {
-            "node": "Forward to Agent",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Wizard Logic",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Wizard Logic": {
-      "main": [
-        [
-          {
-            "node": "Send Wizard Message",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  }
+  ]
 }

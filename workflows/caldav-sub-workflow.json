@@ -1,5 +1,96 @@
 {
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
   "name": "📅 Nextcloud CalDAV Sub-Workflow",
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Input": {
+      "main": [
+        [
+          {
+            "node": "Is createEvent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is createEvent?": {
+      "main": [
+        [
+          {
+            "node": "Build iCal Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Date Range Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build iCal Data": {
+      "main": [
+        [
+          {
+            "node": "CalDAV PUT (Create Event)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CalDAV PUT (Create Event)": {
+      "main": [
+        [
+          {
+            "node": "Return Create Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Date Range Query": {
+      "main": [
+        [
+          {
+            "node": "CalDAV REPORT (Get Events)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CalDAV REPORT (Get Events)": {
+      "main": [
+        [
+          {
+            "node": "Parse iCal Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
   "nodes": [
     {
       "parameters": {
@@ -211,99 +302,5 @@
         420
       ]
     }
-  ],
-  "connections": {
-    "Execute Workflow Trigger": {
-      "main": [
-        [
-          {
-            "node": "Parse Input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Parse Input": {
-      "main": [
-        [
-          {
-            "node": "Is createEvent?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Is createEvent?": {
-      "main": [
-        [
-          {
-            "node": "Build iCal Data",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Build Date Range Query",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build iCal Data": {
-      "main": [
-        [
-          {
-            "node": "CalDAV PUT (Create Event)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "CalDAV PUT (Create Event)": {
-      "main": [
-        [
-          {
-            "node": "Return Create Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build Date Range Query": {
-      "main": [
-        [
-          {
-            "node": "CalDAV REPORT (Get Events)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "CalDAV REPORT (Get Events)": {
-      "main": [
-        [
-          {
-            "node": "Parse iCal Events",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  },
-  "settings": {
-    "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false
-  },
-  "meta": {
-    "n8n-claw-repo": true
-  }
+  ]
 }

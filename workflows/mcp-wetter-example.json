@@ -1,5 +1,22 @@
 {
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
   "name": "MCP: Wetter",
+  "connections": {
+    "get_weather": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
   "nodes": [
     {
       "parameters": {
@@ -31,25 +48,5 @@
         304
       ]
     }
-  ],
-  "connections": {
-    "get_weather": {
-      "ai_tool": [
-        [
-          {
-            "node": "MCP Server Trigger",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  },
-  "settings": {
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false
-  },
-  "meta": {
-    "n8n-claw-repo": true
-  }
+  ]
 }
