@@ -1,4 +1,4 @@
-# 🤖 n8n Greg — Self-Hosted AI Agent
+# 🤖 n8n-claw — Self-Hosted AI Agent
 
 A fully self-hosted AI agent built on n8n + Supabase + Claude. Talks to you via Telegram, builds its own MCP tools, manages calendar, reminders, and memory — all running on your own infrastructure.
 
@@ -14,7 +14,7 @@ A fully self-hosted AI agent built on n8n + Supabase + Claude. Talks to you via 
 ## Architecture
 
 ```
-Telegram ──→ n8n Greg AI Agent (Claude Sonnet)
+Telegram ──→ n8n n8n-claw Agent (Claude Sonnet)
                 ├── Memory (Supabase)
                 ├── MCP Client → MCP Servers (n8n workflows)
                 ├── MCP Builder → creates new MCP Servers automatically
@@ -35,8 +35,8 @@ Telegram ──→ n8n Greg AI Agent (Claude Sonnet)
 ### 1. Clone & configure
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/n8n-greg.git
-cd n8n-greg
+git clone https://github.com/YOUR_USERNAME/n8n-claw.git
+cd n8n-claw
 cp .env.example .env
 # Edit .env with your values
 ```
@@ -61,7 +61,7 @@ In n8n UI, add these credentials:
 ### 4. Activate
 
 1. Open n8n UI
-2. Find `🤖 Greg AI Agent`
+2. Find `🤖 n8n-claw Agent`
 3. Click **Activate**
 4. Send `/start` to your Telegram bot
 
@@ -69,7 +69,7 @@ In n8n UI, add these credentials:
 
 | Workflow | Purpose |
 |---|---|
-| `🤖 Greg AI Agent` | Main agent — receives Telegram messages, thinks, responds |
+| `🤖 n8n-claw Agent` | Main agent — receives Telegram messages, thinks, responds |
 | `🏗️ MCP Builder` | Builds new MCP Server workflows on demand |
 | `🔌 MCP Client` | Calls tools on MCP Servers (sub-workflow) |
 | `📅 CalDAV Sub-Workflow` | Reads/creates calendar events |

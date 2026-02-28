@@ -2,7 +2,7 @@
 
 ## Architecture
 
-When you ask Greg to build a new MCP tool, the MCP Builder workflow runs:
+When you ask n8n-claw to build a new MCP tool, the MCP Builder workflow runs:
 
 ```
 Start → Search API Docs (Brave) → Fetch Docs (Jina Reader)

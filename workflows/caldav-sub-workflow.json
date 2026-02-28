@@ -75,7 +75,7 @@
     {
       "parameters": {
         "method": "PUT",
-        "url": "={{ 'https://nx59021.your-storageshare.de/remote.php/dav/calendars/Greg/personal/' + $json.filename }}",
+        "url": "={{ 'https://nx59021.your-storageshare.de/remote.php/dav/calendars/n8n-claw/personal/' + $json.filename }}",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBasicAuth",
         "sendHeaders": true,
@@ -111,7 +111,7 @@
       "credentials": {
         "httpBasicAuth": {
           "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Nextcloud CalDAV Greg (fixed)"
+          "name": "Nextcloud CalDAV n8n-claw (fixed)"
         }
       }
     },
@@ -172,7 +172,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "https://nx59021.your-storageshare.de/remote.php/dav/calendars/Greg/friedemann.schuetz@googlemail.com/?export",
+        "url": "https://nx59021.your-storageshare.de/remote.php/dav/calendars/n8n-claw/{{NEXTCLOUD_CALENDAR_ID}}/?export",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBasicAuth",
         "options": {
@@ -194,7 +194,7 @@
       "credentials": {
         "httpBasicAuth": {
           "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Nextcloud CalDAV Greg"
+          "name": "Nextcloud CalDAV n8n-claw"
         }
       }
     },
@@ -304,6 +304,6 @@
     "availableInMCP": false
   },
   "meta": {
-    "n8n-greg-repo": true
+    "n8n-claw-repo": true
   }
 }

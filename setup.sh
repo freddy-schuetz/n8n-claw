@@ -225,7 +225,7 @@ for f in workflows/*.json; do
 done
 
 declare -A WF_IDS
-IMPORT_ORDER="mcp-client caldav-sub-workflow reminder-factory mcp-wetter-example workflow-builder mcp-builder setup-wizard greg-ai-agent"
+IMPORT_ORDER="mcp-client caldav-sub-workflow reminder-factory mcp-wetter-example workflow-builder mcp-builder setup-wizard n8n-claw-agent"
 
 for name in $IMPORT_ORDER; do
   f="workflows/deployed/${name}.json"
@@ -240,7 +240,7 @@ for name in $IMPORT_ORDER; do
 done
 
 # ── 11. Wire setup wizard → greg agent ──────────────────────
-AGENT_ID=${WF_IDS['greg-ai-agent']}
+AGENT_ID=${WF_IDS['n8n-claw-agent']}
 WIZARD_ID=${WF_IDS['setup-wizard']}
 if [ -n "$AGENT_ID" ] && [ "$AGENT_ID" != "ERR" ]; then
   curl -s "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}" \
@@ -283,7 +283,7 @@ echo ""
 echo "  n8n:  http://${PUBLIC_IP}:5678"
 echo ""
 echo "  Activate these workflows in n8n UI:"
-echo "    → 🤖 Greg AI Agent  (ID: ${WF_IDS['greg-ai-agent']})"
+echo "    → 🤖 n8n-claw Agent  (ID: ${WF_IDS['n8n-claw-agent']})"
 echo "    → 🏗️  MCP Builder    (ID: ${WF_IDS['mcp-builder']})"
 echo ""
 echo "  Then send /start to your Telegram bot → Setup Wizard runs!"

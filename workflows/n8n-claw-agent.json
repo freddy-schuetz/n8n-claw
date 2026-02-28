@@ -1,5 +1,5 @@
 {
-  "name": "🤖 Greg AI Agent",
+  "name": "🤖 n8n-claw Agent",
   "nodes": [
     {
       "parameters": {
@@ -16,7 +16,7 @@
         0,
         -16
       ],
-      "webhookId": "greg-agent-telegram",
+      "webhookId": "n8n-claw-telegram",
       "credentials": {
         "telegramApi": {
           "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
@@ -429,7 +429,7 @@
     {
       "parameters": {
         "description": "Ruft ein Tool auf einem MCP Server auf. Parameter: mcp_url (Server-URL), tool_name (Tool-Name), arguments (JSON Objekt mit Tool-Parametern). Beispiel OpenLibrary: mcp_url={{N8N_URL}}/mcp/openlibrary-api, tool_name=get_book_by_isbn, arguments={\"isbn\":\"9783442744916\"}. Beispiel Wetter: mcp_url={{N8N_URL}}/mcp/wetter, tool_name=get_weather, arguments={\"city\":\"Essen\"}.",
-        "jsCode": "// Debug: figure out what query actually is\nconst qType = typeof query;\nlet mcpUrl = '', toolName = '', args = {};\n\nif (qType === 'object' && query !== null) {\n  // query is already an object\n  mcpUrl = query.mcp_url || '';\n  toolName = query.tool_name || '';\n  args = query.arguments || {};\n} else if (qType === 'string') {\n  try {\n    const parsed = JSON.parse(query);\n    mcpUrl = parsed.mcp_url || '';\n    toolName = parsed.tool_name || '';\n    args = parsed.arguments || {};\n  } catch(e) {\n    return 'Parse error: query=' + String(query).substring(0,200) + ' type=' + qType;\n  }\n} else {\n  return 'Unexpected query type: ' + qType + ' value: ' + String(query).substring(0,200);\n}\n\nif (typeof args === 'string') try { args = JSON.parse(args); } catch(e) {}\nif (!mcpUrl || !toolName) return 'Fehler: mcp_url=' + mcpUrl + ' tool_name=' + toolName + ' (query type was: ' + qType + ')';\n\ntry {\n  // 1. Initialize\n  const init = await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream'},\n    body: JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'greg-mcp',version:'1.0'}}}),\n    returnFullResponse: true, encoding: 'utf-8', json: false\n  });\n  const sid = init.headers && init.headers['mcp-session-id'];\n  if (!sid) return 'MCP: Kein session-id. Body: ' + String(init.body||init).substring(0,200);\n\n  // 2. Initialized\n  await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},\n    body: JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'}),\n    json: false\n  });\n\n  // 3. Call tool\n  const resp = await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},\n    body: JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:toolName,arguments:args}}),\n    json: false\n  });\n\n  const bodyStr = String(resp);\n  const dataLine = bodyStr.split('\\n').find(l => l.startsWith('data: '));\n  if (!dataLine) return 'MCP: Keine Daten. Response: ' + bodyStr.substring(0,200);\n  const result = JSON.parse(dataLine.substring(6));\n  if (result.error) return 'MCP Error: ' + JSON.stringify(result.error);\n  return result.result?.content?.[0]?.text || JSON.stringify(result.result);\n} catch(e) {\n  return 'MCP Error: ' + e.message;\n}",
+        "jsCode": "// Debug: figure out what query actually is\nconst qType = typeof query;\nlet mcpUrl = '', toolName = '', args = {};\n\nif (qType === 'object' && query !== null) {\n  // query is already an object\n  mcpUrl = query.mcp_url || '';\n  toolName = query.tool_name || '';\n  args = query.arguments || {};\n} else if (qType === 'string') {\n  try {\n    const parsed = JSON.parse(query);\n    mcpUrl = parsed.mcp_url || '';\n    toolName = parsed.tool_name || '';\n    args = parsed.arguments || {};\n  } catch(e) {\n    return 'Parse error: query=' + String(query).substring(0,200) + ' type=' + qType;\n  }\n} else {\n  return 'Unexpected query type: ' + qType + ' value: ' + String(query).substring(0,200);\n}\n\nif (typeof args === 'string') try { args = JSON.parse(args); } catch(e) {}\nif (!mcpUrl || !toolName) return 'Fehler: mcp_url=' + mcpUrl + ' tool_name=' + toolName + ' (query type was: ' + qType + ')';\n\ntry {\n  // 1. Initialize\n  const init = await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream'},\n    body: JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'n8n-claw-mcp',version:'1.0'}}}),\n    returnFullResponse: true, encoding: 'utf-8', json: false\n  });\n  const sid = init.headers && init.headers['mcp-session-id'];\n  if (!sid) return 'MCP: Kein session-id. Body: ' + String(init.body||init).substring(0,200);\n\n  // 2. Initialized\n  await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},\n    body: JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'}),\n    json: false\n  });\n\n  // 3. Call tool\n  const resp = await helpers.httpRequest({\n    method: 'POST', url: mcpUrl,\n    headers: {'Content-Type':'application/json','Accept':'application/json, text/event-stream','mcp-session-id':sid},\n    body: JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:toolName,arguments:args}}),\n    json: false\n  });\n\n  const bodyStr = String(resp);\n  const dataLine = bodyStr.split('\\n').find(l => l.startsWith('data: '));\n  if (!dataLine) return 'MCP: Keine Daten. Response: ' + bodyStr.substring(0,200);\n  const result = JSON.parse(dataLine.substring(6));\n  if (result.error) return 'MCP Error: ' + JSON.stringify(result.error);\n  return result.result?.content?.[0]?.text || JSON.stringify(result.result);\n} catch(e) {\n  return 'MCP Error: ' + e.message;\n}",
         "specifyInputSchema": false
       },
       "id": "mcp-client-code",
@@ -658,6 +658,6 @@
     "availableInMCP": false
   },
   "meta": {
-    "n8n-greg-repo": true
+    "n8n-claw-repo": true
   }
 }
