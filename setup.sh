@@ -362,6 +362,7 @@ print(json.dumps({'name': wf['name'], 'nodes': nodes, 'connections': connections
     echo -e "  ${YELLOW}⚠️  Agent activation: ${AGENT_ACT_ERR}${NC}"
   fi
 
+  sleep 5  # avoid Telegram rate limit on webhook registration
   ACTIVATE_RESP=$(curl -s -X POST "${N8N_BASE}/api/v1/workflows/${WIZARD_ID}/activate" \
       -H "X-N8N-API-KEY: ${N8N_API_KEY}")
     ACTIVATE_ERR=$(echo "$ACTIVATE_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null)
