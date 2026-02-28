@@ -239,7 +239,7 @@ for name in $IMPORT_ORDER; do
   echo "  ✅ ${wf_name} → ${wf_id}"
 done
 
-# ── 11. Wire setup wizard → greg agent ──────────────────────
+# ── 11. Wire setup wizard → n8n-claw agent ──────────────────────
 AGENT_ID=${WF_IDS['n8n-claw-agent']}
 WIZARD_ID=${WF_IDS['setup-wizard']}
 if [ -n "$AGENT_ID" ] && [ "$AGENT_ID" != "ERR" ]; then
