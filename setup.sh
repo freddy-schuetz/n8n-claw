@@ -364,16 +364,39 @@ USER_DISPLAY=$(cli_ask "Your name" "User")
 LANG=$(cli_ask "Preferred language" "English")
 CTX=$(cli_ask "What will you use this agent for" "Personal assistant and automation")
 
+echo ""
+echo "  Communication style:"
+echo "    1) Casual & direct (short messages, no filler)"
+echo "    2) Professional & formal"
+echo "    3) Friendly & warm"
+read -rp "  Choose [1]: " STYLE_CHOICE
+case "${STYLE_CHOICE:-1}" in
+  2) STYLE="Professional and formal. Full sentences. Polished tone." ;;
+  3) STYLE="Friendly and warm. Encouraging. Uses occasional emojis." ;;
+  *) STYLE="Casual and direct. Short messages. No filler phrases or pleasantries. Gets to the point." ;;
+esac
+
+echo ""
+echo "  Proactive behavior:"
+echo "    1) Proactive — reminds you of things, checks in, suggests next steps"
+echo "    2) Reactive — only responds when you message first"
+read -rp "  Choose [1]: " PROACTIVE_CHOICE
+case "${PROACTIVE_CHOICE:-1}" in
+  2) PROACTIVE="Only respond when the user initiates. Do not proactively reach out." ;;
+  *) PROACTIVE="Be proactive: remind the user of upcoming events, suggest next steps, follow up on open tasks." ;;
+esac
+
 N8N_URL_FOR_MCP="${DOMAIN:+https://$DOMAIN}"
 N8N_URL_FOR_MCP="${N8N_URL_FOR_MCP:-http://localhost:5678}"
 
 PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres > /dev/null 2>&1 <<SQL
 INSERT INTO public.soul (key, content) VALUES
   ('name', '${BOT_NAME}'),
-  ('persona', 'You are ${BOT_NAME}, a helpful AI assistant. Be concise and direct. No filler phrases. Preferred language: ${LANG}.'),
-  ('vibe', 'Direct, helpful, conversational. Like a competent colleague, not a chatbot.'),
-  ('boundaries', 'Keep private data private. Ask before external actions.'),
-  ('communication', 'You communicate via Telegram. Reply directly in the conversation.')
+  ('persona', 'You are ${BOT_NAME}, a helpful AI assistant for ${USER_DISPLAY}. Preferred language: ${LANG}. Communication style: ${STYLE}'),
+  ('vibe', '${STYLE}'),
+  ('proactive', '${PROACTIVE}'),
+  ('boundaries', 'Keep private data private. Ask before sending emails, tweets, or any public posts.'),
+  ('communication', 'You communicate via Telegram. Reply directly in the conversation. The user'\''s chat ID is in the message.')
 ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;
 
 INSERT INTO public.user_profiles (user_id, name, display_name, timezone, context, setup_done, setup_step)
