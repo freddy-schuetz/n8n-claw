@@ -942,3 +942,22 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 ALTER TABLE public.user_profiles
   ADD COLUMN IF NOT EXISTS setup_done boolean DEFAULT false,
   ADD COLUMN IF NOT EXISTS setup_step integer DEFAULT 0;
+
+-- Required by Supabase Studio
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'supabase_admin') THEN
+    CREATE ROLE supabase_admin WITH LOGIN SUPERUSER PASSWORD 'supabase_admin';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'service_role') THEN
+    CREATE ROLE service_role NOLOGIN;
+  END IF;
+END $$;
+GRANT ALL ON SCHEMA public TO supabase_admin;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO supabase_admin;
+GRANT USAGE ON SCHEMA public TO anon, service_role;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
