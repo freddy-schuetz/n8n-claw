@@ -386,6 +386,17 @@ case "${PROACTIVE_CHOICE:-1}" in
   *) PROACTIVE="Be proactive: remind the user of upcoming events, suggest next steps, follow up on open tasks." ;;
 esac
 
+echo ""
+echo "  Custom personality (optional — overrides the above):"
+echo "  Describe exactly how the agent should behave, in your own words."
+echo "  Leave empty to use the settings above."
+read -rp "  Custom persona: " CUSTOM_PERSONA
+if [ -n "$CUSTOM_PERSONA" ]; then
+  STYLE="$CUSTOM_PERSONA"
+  PROACTIVE=""
+  echo -e "  ${GREEN}✅ Using custom persona${NC}"
+fi
+
 N8N_URL_FOR_MCP="${DOMAIN:+https://$DOMAIN}"
 N8N_URL_FOR_MCP="${N8N_URL_FOR_MCP:-http://localhost:5678}"
 
