@@ -34,17 +34,10 @@ n8n-claw Agent (Claude Sonnet)
 - An **Anthropic API Key** — from [console.anthropic.com](https://console.anthropic.com)
 - A **domain name** (optional but recommended, required for Telegram HTTPS webhooks)
 
-### Step 1 — Clone the repo
+### Step 1 — Clone & run
 
 ```bash
-git clone https://github.com/freddy-schuetz/n8n-claw.git
-cd n8n-claw
-```
-
-### Step 2 — Run the setup script
-
-```bash
-./setup.sh
+git clone https://github.com/freddy-schuetz/n8n-claw.git && cd n8n-claw && ./setup.sh
 ```
 
 The script will:
