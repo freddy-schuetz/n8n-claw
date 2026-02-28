@@ -15,7 +15,11 @@ if [ "$(id -u)" != "0" ]; then
   exit 1
 fi
 
-# ── 1. Install dependencies ─────────────────────────────────
+# ── 1. Update system + install dependencies ─────────────────
+echo -e "\n${GREEN}🔄 Updating system packages...${NC}"
+apt-get update -qq && apt-get upgrade -y -qq 2>/dev/null
+echo -e "  ${GREEN}✅ System up to date${NC}"
+
 echo -e "\n${GREEN}📦 Checking dependencies...${NC}"
 
 if ! command -v curl &>/dev/null; then
