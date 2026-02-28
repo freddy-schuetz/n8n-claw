@@ -337,7 +337,25 @@ else
   echo "  ✅ Supabase Postgres → ${POSTGRES_CRED_ID}"
 fi
 
-# ── 10. Prepare + import workflows ──────────────────────────
+# ── 10. Wait for n8n API to be ready ────────────────────────
+echo -e "\n${GREEN}⏳ Waiting for n8n API...${NC}"
+for i in {1..30}; do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+    -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
+    "${N8N_BASE:-http://localhost:5678}/api/v1/workflows" 2>/dev/null)
+  if [ "$STATUS" = "200" ]; then
+    echo -e "  ${GREEN}✅ n8n API ready${NC}"
+    break
+  fi
+  sleep 3; echo -n "."
+done
+echo ""
+if [ "$STATUS" != "200" ]; then
+  echo -e "${RED}❌ n8n API not responding (status: $STATUS). Check n8n logs: docker logs n8n-claw${NC}"
+  exit 1
+fi
+
+# ── 11. Prepare + import workflows ──────────────────────────
 set +e  # credential IDs might be empty, don't abort
 echo -e "\n${GREEN}📦 Importing workflows...${NC}"
 mkdir -p workflows/deployed
