@@ -521,18 +521,61 @@ import subprocess, os
 pw = os.environ.get('POSTGRES_PASSWORD', '')
 env = {**os.environ, 'PGPASSWORD': pw, 'LANG': 'C', 'LC_ALL': 'C'}
 mcp_url = '${N8N_URL_FOR_MCP}'
+bot = '${BOT_NAME}'.replace("'", "''")
+user = '${USER_DISPLAY}'.replace("'", "''")
+ctx = '${CTX}'.replace("'", "''")
+
 sql = f"""
 INSERT INTO public.agents (key, content) VALUES
-  ('mcp_instructions', 'You have MCP capabilities:
+  ('mcp_instructions', 'You have MCP (Model Context Protocol) capabilities:
 
-MCP Client: call tools on MCP servers. Params: mcp_url, tool_name, arguments.
-MCP Builder: ALWAYS use for MCP servers, never WorkflowBuilder.
+## MCP Client (mcp_client tool)
+Call tools on MCP servers. Parameters:
+- mcp_url: Server URL
+- tool_name: Name of the tool
+- arguments: JSON object with tool parameters
 
-Available: Wetter at {mcp_url}/mcp/wetter (tool: get_weather, param: city)')
+## MCP Builder (mcp_builder tool)
+ALWAYS use this when the user wants to build an MCP server or integration.
+NEVER use WorkflowBuilder for MCP servers.
+Parameter: task (description of what the MCP server should do)
+NOTE: After build, manually deactivate + activate in n8n UI (webhook bug).
+
+## Available MCP Servers:
+- Wetter: {mcp_url}/mcp/wetter (tool: get_weather, param: city)
+
+## Registry
+Query all active servers: SELECT * FROM mcp_registry WHERE active = true;'),
+
+  ('tools', 'Available tools and when to use them:
+
+CALENDAR (Kalender tool):
+- Use for: reading upcoming events, creating new appointments
+- Input: JSON with action (list/create) and parameters
+
+REMINDER (Reminder tool):
+- Use for: setting timed reminders, e.g. "remind me in 2 hours"
+- Input: ISO 8601 time + message
+
+WORKFLOW BUILDER (WorkflowBuilder tool):
+- Use for: building new n8n automations (NOT for MCP servers)
+- Input: JSON with task description
+
+MEMORY (memory_search / memory_save):
+- Search: find relevant past information
+- Save: store important decisions or facts
+
+HTTP (http_request):
+- Use for: simple API calls without authentication'),
+
+  ('user_context', 'The user is {user}. Context: {ctx}')
+
 ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;
 """
-subprocess.run(['psql','-h','localhost','-U','postgres','-d','postgres'],
+result = subprocess.run(['psql','-h','localhost','-U','postgres','-d','postgres'],
   input=sql, capture_output=True, text=True, env=env)
+if result.returncode != 0:
+    print('agents SQL error:', result.stderr[:200])
 PYEOF2
 # Verify soul was written
 SOUL_COUNT=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres -t -c "SELECT COUNT(*) FROM soul" 2>/dev/null | tr -d ' ')
