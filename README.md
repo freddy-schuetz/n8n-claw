@@ -88,6 +88,13 @@ The easiest way is to open each workflow and click **"Create new credential"** d
 - Select `Anthropic API` as the chat model
 - *(not set automatically due to n8n credential linking)*
 
+**MCP Builder — Brave Search API Key:**
+- The MCP Builder uses Brave Search to look up API documentation automatically
+- Open the **MCP Builder** workflow → click the **"Search API Docs"** node
+- Under *Headers*, set `X-Subscription-Token` to your Brave Search API key
+- Get a free key at [brave.com/search/api](https://brave.com/search/api/) (free tier: 2,000 queries/month)
+- Without this key, the MCP Builder cannot find API docs automatically — you'd need to paste docs manually into the prompt
+
 ### Step 3 — Activate all workflows
 
 In n8n UI, toggle **all** of these on:
