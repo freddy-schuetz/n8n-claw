@@ -9,4 +9,5 @@ scripts/
 .mcp.json
 .claude/
 docs/infrastructure.md
+docs/feature-roadmap.md
 CLAUDE.local.md

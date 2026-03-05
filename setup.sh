@@ -142,6 +142,20 @@ _load_env
 # ── 4. Start n8n early so user can get API key ──────────────
 if [ -z "$N8N_API_KEY" ] || [[ "$N8N_API_KEY" == your_* ]]; then
   echo -e "\n${GREEN}🐳 Starting n8n...${NC}"
+  # Start DB first and create uuid extension before n8n connects
+  POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
+    docker compose up -d db 2>&1 | tail -3 || true
+  echo "  Waiting for database..."
+  for i in {1..30}; do
+    LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -p 5432 -U postgres -d postgres \
+      -c "SELECT 1" > /dev/null 2>&1 && break
+    sleep 2; echo -n "."
+  done
+  echo ""
+  LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -p 5432 -U postgres -d postgres \
+    -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";' > /dev/null 2>&1
+
+  # Now start n8n (DB is ready with uuid extension)
   N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY \
   POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
   SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET \
