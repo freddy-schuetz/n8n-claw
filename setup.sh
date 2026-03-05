@@ -57,7 +57,7 @@ _load_env() {
     [[ -z "${line// }" ]] && continue
     line="${line%%#*}"
     line="$(echo "$line" | sed 's/[[:space:]]*=[[:space:]]*/=/')"
-    [[ "$line" =~ ^[A-Z_]+=.* ]] && export "$line" 2>/dev/null || true
+    [[ "$line" =~ ^[A-Za-z0-9_]+=.* ]] && export "$line" 2>/dev/null || true
   done < .env
 }
 _load_env
