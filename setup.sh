@@ -207,6 +207,7 @@ ask "N8N_API_KEY"        "n8n API Key (Settings → API → Create key)" "" 1
 ask "TELEGRAM_BOT_TOKEN" "Telegram Bot Token (from @BotFather)"      "" 1
 ask "TELEGRAM_CHAT_ID"   "Your Telegram Chat ID (from @userinfobot)" "" 0
 ask "ANTHROPIC_API_KEY"  "Anthropic API Key (from console.anthropic.com)" "" 1
+ask "OPENAI_API_KEY"    "OpenAI API Key (for voice transcription, optional)" "" 1
 echo ""
 echo -e "  ${YELLOW}Optional: Domain for HTTPS (required for Telegram webhooks)${NC}"
 echo "  Leave empty to skip (you can set up HTTPS later)"
@@ -408,6 +409,12 @@ creds=json.load(sys.stdin).get('data',[])
 for c in creds:
     if c.get('type')=='postgres': print(c['id']); break
 " 2>/dev/null)
+EXISTING_OPENAI_ID=$(echo "$EXISTING_CREDS" | python3 -c "
+import sys,json
+creds=json.load(sys.stdin).get('data',[])
+for c in creds:
+    if c.get('type')=='openAiApi': print(c['id']); break
+" 2>/dev/null)
 
 if [ -n "$EXISTING_TELEGRAM_ID" ]; then
   TELEGRAM_CRED_ID="$EXISTING_TELEGRAM_ID"
@@ -440,6 +447,21 @@ PGEOF
     echo "  ✅ Supabase Postgres → ${POSTGRES_CRED_ID} (created)"
   fi
 fi
+
+# OpenAI credential (optional — for voice transcription)
+OPENAI_CRED_ID=""
+if [ -n "$OPENAI_API_KEY" ] && [[ "$OPENAI_API_KEY" != "your_"* ]]; then
+  if [ -n "$EXISTING_OPENAI_ID" ]; then
+    OPENAI_CRED_ID="$EXISTING_OPENAI_ID"
+    echo "  ✅ OpenAI API → ${OPENAI_CRED_ID} (existing)"
+  else
+    OPENAI_CRED_ID=$(create_cred "OpenAI API" "openAiApi" "{\"apiKey\":\"${OPENAI_API_KEY}\"}")
+    [ -z "$OPENAI_CRED_ID" ] && echo -e "  ${YELLOW}⚠️  OpenAI credential failed — voice transcription won't work${NC}" || echo "  ✅ OpenAI API → ${OPENAI_CRED_ID} (created)"
+  fi
+else
+  echo -e "  ${YELLOW}ℹ️  OpenAI API Key not set — voice transcription disabled${NC}"
+fi
+
 fi  # end INSTALL_MODE guard for credentials
 set -e
 rm -f /tmp/pg-cred.json
@@ -516,6 +538,8 @@ for f in workflows/*.json; do
     sed -i "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Telegram Bot\"|${TELEGRAM_CRED_ID}\", \"name\": \"Telegram Bot\"|g" "$out"
   [ -n "$POSTGRES_CRED_ID" ] && [ "$POSTGRES_CRED_ID" != "REPLACE_WITH_YOUR_CREDENTIAL_ID" ] && \
     sed -i "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Supabase Postgres\"|${POSTGRES_CRED_ID}\", \"name\": \"Supabase Postgres\"|g" "$out"
+  [ -n "$OPENAI_CRED_ID" ] && \
+    sed -i "s|REPLACE_WITH_YOUR_OPENAI_CREDENTIAL_ID\", \"name\": \"OpenAI API\"|${OPENAI_CRED_ID}\", \"name\": \"OpenAI API\"|g" "$out"
 done
 IMPORT_ORDER="mcp-client reminder-factory mcp-weather-example workflow-builder mcp-builder memory-consolidation heartbeat n8n-claw-agent"
 
@@ -624,6 +648,7 @@ raw = sys.stdin.read()
 if '${REAL_TELEGRAM_ID}': raw = raw.replace('REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Telegram Bot\"', '${REAL_TELEGRAM_ID}\", \"name\": \"Telegram Bot\"')
 if '${REAL_ANTHROPIC_ID}': raw = raw.replace('REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Anthropic API\"', '${REAL_ANTHROPIC_ID}\", \"name\": \"Anthropic API\"')
 if '${REAL_POSTGRES_ID}': raw = raw.replace('REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Supabase Postgres\"', '${REAL_POSTGRES_ID}\", \"name\": \"Supabase Postgres\"')
+if '${OPENAI_CRED_ID}': raw = raw.replace('REPLACE_WITH_YOUR_OPENAI_CREDENTIAL_ID\", \"name\": \"OpenAI API\"', '${OPENAI_CRED_ID}\", \"name\": \"OpenAI API\"')
 print(raw)
 " 2>/dev/null)
 

@@ -91,6 +91,7 @@ The easiest way is to open each workflow and click **"Create new credential"** d
 | Postgres | `Supabase Postgres` | Agent (Load Soul, Load History, etc.) |
 | Anthropic API | `Anthropic API` | Agent (Claude node), MCP Builder |
 | Telegram Bot | `Telegram Bot` | Agent (Telegram Trigger + Reply) — *created automatically by setup* |
+| OpenAI API | `OpenAI API` | Agent (Voice transcription via Whisper) — *optional, created by setup if key provided* |
 
 **Postgres connection details** *(shown in setup output)*:
 - Host: `db` | Port: `5432` | DB: `postgres` | User: `postgres`
@@ -118,6 +119,10 @@ During setup, you'll be asked for an embedding API key. This enables vector-base
 - **Ollama**: `nomic-embed-text` — local, no API key needed (requires Ollama running on your server)
 
 Without an embedding key, the agent still works — it falls back to keyword-based memory search.
+
+**Optional: OpenAI API Key for voice messages:**
+
+During setup, you'll be asked for an OpenAI API key. This enables voice message transcription via Whisper. Without it, the agent cannot process voice messages — but photos, documents, and locations work without it.
 
 ### Step 3 — Activate remaining workflows
 
@@ -240,6 +245,28 @@ The agent can set timed reminders that arrive as Telegram messages at the specif
 > "Set a reminder for Friday at 3pm: submit the report"
 
 Each reminder creates a temporary n8n workflow that fires once at the scheduled time, sends the Telegram message, and deletes itself.
+
+---
+
+## Media Support
+
+The agent understands more than just text — send voice messages, photos, documents, or locations directly in Telegram.
+
+| Media type | What happens | Requires |
+|---|---|---|
+| **Voice messages** | Transcribed via OpenAI Whisper, then processed as text | OpenAI API Key |
+| **Photos** | Sent directly to Claude Vision for analysis | — (built-in) |
+| **Documents (PDF)** | Sent directly to Claude for reading and analysis | — (built-in) |
+| **Location** | Converted to coordinates text, agent responds with context | — (built-in) |
+
+**Voice transcription** requires an OpenAI API key (configured during setup). Without it, voice messages won't work — but all other media types function without any extra API keys.
+
+**Photos and documents** are passed directly to Claude as multimodal content — no intermediate processing needed. Send a photo and ask "what's in this image?", or send a PDF and ask for a summary.
+
+> "What do you see in this photo?"
+> *[send a voice message]* — automatically transcribed and answered
+> *[send a PDF]* — "Please summarize this document"
+> *[share location]* — agent responds with location context
 
 ---
 
