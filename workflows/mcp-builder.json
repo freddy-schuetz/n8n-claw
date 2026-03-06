@@ -119,6 +119,17 @@
       "main": [
         [
           {
+            "node": "Pick Best Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Best Result": {
+      "main": [
+        [
+          {
             "node": "Fetch Doc Content",
             "type": "main",
             "index": 0
@@ -258,7 +269,7 @@
   "nodes": [
     {
       "parameters": {
-        "url": "=http://searxng:8080/search?q={{ encodeURIComponent($json.task + ' API documentation REST reference') }}&format=json&language=en&engines=google,duckduckgo,brave",
+        "url": "=http://searxng:8080/search?q={{ encodeURIComponent((JSON.parse($json.query || '{}').task || $json.query || '') + ' API documentation REST reference') }}&format=json&language=en&engines=google,duckduckgo,brave",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -282,7 +293,20 @@
     },
     {
       "parameters": {
-        "url": "={{ 'https://r.jina.ai/' + ($json.results?.[0]?.url || '') }}",
+        "jsCode": "const raw = $('Start').first().json;\nlet task = '';\ntry {\n  const p = JSON.parse(raw.query || '{}');\n  task = p.task || p.description || p.query || raw.query || '';\n} catch(e) {\n  task = raw.task || raw.query || String(raw);\n}\n\nconst stopWords = new Set(['build','baue','bau','erstelle','create','make','einen','eine','ein','der','die','das','und','or','the','a','an','with','mit','von','from','for','fuer','that','which','tool','mcp','server','named','namens','called','does','following','api','parameter','return','returns','using','http','get','post','json','format','data','request','requests','response','should','soll','dem','den','des','als','nimmt','ruft','auf','gibt','zurueck','titel','autor','isbn','buches','strukturiertes','antwort']);\nconst keywords = task.toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').split(/\\s+/).filter(w => w.length > 2 && !stopWords.has(w));\n\n// Extract URLs mentioned in task to identify the target API domain\nconst urlMatches = task.match(/https?:\\/\\/([^\\s\\/\\)]+)/g) || [];\nconst taskDomains = urlMatches.map(u => { try { return u.replace(/^https?:\\/\\//, '').split('/')[0].replace('www.',''); } catch(e) { return ''; } }).filter(Boolean);\n\nconst results = $json.results || [];\nif (results.length === 0) return [{ json: { bestUrl: '', results, task } }];\n\nconst scored = results.map((r, i) => {\n  const url = (r.url || '').toLowerCase();\n  const title = (r.title || '').toLowerCase();\n  const text = title + ' ' + url;\n  let score = 0;\n\n  // Keyword matches in title+url\n  for (const kw of keywords) { if (text.includes(kw)) score += 2; }\n\n  // Strong bonus: URL domain matches a domain mentioned in the task\n  for (const d of taskDomains) { if (url.includes(d)) score += 10; }\n\n  // Bonus for official API doc URL patterns\n  if (/\\/api\\/|\\/docs\\/|\\/dev\\/|\\/developer|\\/reference|\\/documentation/.test(url)) score += 5;\n\n  // Penalty for generic sites\n  if (/stackoverflow\\.com|reddit\\.com|learn\\.microsoft\\.com|medium\\.com|w3tutorials|arcanecode|baeldung/.test(url)) score -= 5;\n\n  // Slight position bonus\n  score -= i * 0.1;\n  return { url: r.url, title: r.title, score, index: i };\n});\n\nscored.sort((a, b) => b.score - a.score);\nconst best = scored[0];\nreturn [{ json: { bestUrl: best.url || results[0]?.url || '', results, task, pickedIndex: best.index, pickedTitle: best.title, pickedScore: best.score } }];"
+      },
+      "id": "pick-best-result",
+      "name": "Pick Best Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://r.jina.ai/' + ($json.bestUrl || '') }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -310,7 +334,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        448,
+        560,
         -304
       ],
       "continueOnFail": true
@@ -330,7 +354,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst raw = $('Start').first().json;\nlet task = '';\ntry {\n  const p = JSON.parse(raw.query || '{}');\n  task = p.task || p.description || p.query || raw.query || '';\n} catch(e) {\n  task = raw.task || raw.query || String(raw);\n}\ntask = task.replace(/^task:\\s*/i, '').trim();\n\nlet docsContext = '';\ntry {\n  const searchResults = $('Search API Docs').first().json;\n  const topResults = (searchResults?.results || []).slice(0,3).map(r => `- ${r.title}: ${r.url}`).join('\\n');\n  const docText = $('Fetch Doc Content').first().json?.body || $('Fetch Doc Content').first().json?.data || '';\n  const truncated = String(docText).substring(0, 8000).trim();\n  if (truncated && truncated.length > 100) {\n    docsContext = `\\n\\nAPI DOKUMENTATION:\\nQuellen:\\n${topResults}\\n\\nInhalt:\\n${truncated}`;\n  } else if (topResults) {\n    docsContext = `\\n\\nGefundene Quellen:\\n${topResults}`;\n  }\n} catch(e) { docsContext = ''; }\n\nconst words = task.toLowerCase().split(/\\s+/).filter(w => w.length > 2 && !['ein','eine','der','die','das','und','oder','via','mit','fuer','ueber','von','aus','baue','bau','erstelle','mcp','server','tool','einen','neue','neuen','neues'].includes(w));\nconst serverName = words.slice(0, 3).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || 'Custom Tool';\nconst path = words.slice(0, 2).join('-') || 'custom-tool';\n\nconst prompt = `Generiere JavaScript Code fuer einen n8n Sub-Workflow der API-Anfragen bearbeitet.\n\nAUFGABE: ${task}\n${docsContext}\n\nDer Code laeuft in einem n8n Code-Node. Parameter kommen ueber $json (z.B. $json.isbn).\n\nAntworte NUR mit einem JSON-Objekt:\n{\n  \"tool_name\": \"snake_case_name\",\n  \"description\": \"Was das Tool tut (1 Satz, fuer den AI Agent)\",\n  \"params\": [{\"name\": \"param1\", \"description\": \"was dieser param bedeutet\", \"type\": \"string\"}],\n  \"jsCode\": \"der JavaScript Code\"\n}\n\nREGELN fuer jsCode (laeuft in n8n Code Node, NICHT toolCode):\n- Parameter lesen: const isbn = $json.isbn || $input.first().json.isbn;\n- HTTP: await helpers.httpRequest({method:'GET', url:'...'})\n- Return MUSS ein Array sein: return [{json: {result: 'antwort als string'}}];\n- KEIN fetch(), KEIN require(), KEIN new URL()\n- Fehlerbehandlung einbauen\n\nBEISPIEL fuer ISBN lookup:\nconst isbn = $json.isbn || $input.first().json.isbn;\nif (!isbn) return [{json: {result: 'Fehler: ISBN fehlt'}}];\nconst data = await helpers.httpRequest({method:'GET', url:'https://openlibrary.org/api/books?bibkeys=ISBN:'+isbn+'&format=json&jscmd=data'});\nconst book = data['ISBN:'+isbn];\nif (!book) return [{json: {result: 'Nicht gefunden: '+isbn}}];\nreturn [{json: {result: 'Titel: '+book.title+', Autor: '+(book.authors?.[0]?.name||'unbekannt')}}];\n\nAntworte NUR mit dem JSON-Objekt!`;\n\nreturn [{json: {prompt, task, serverName, path}}];\n"
+        "jsCode": "\nconst raw = $('Start').first().json;\nlet task = '';\ntry {\n  const p = JSON.parse(raw.query || '{}');\n  task = p.task || p.description || p.query || raw.query || '';\n} catch(e) {\n  task = raw.task || raw.query || String(raw);\n}\ntask = task.replace(/^task:\\s*/i, '').trim();\n\nlet docsContext = '';\ntry {\n  const searchResults = $('Pick Best Result').first().json;\n  const topResults = (searchResults?.results || []).slice(0,3).map(r => `- ${r.title}: ${r.url}`).join('\\n');\n  const docText = $('Fetch Doc Content').first().json?.body || $('Fetch Doc Content').first().json?.data || '';\n  const truncated = String(docText).substring(0, 8000).trim();\n  if (truncated && truncated.length > 100) {\n    docsContext = `\\n\\nAPI DOKUMENTATION:\\nQuellen:\\n${topResults}\\n\\nInhalt:\\n${truncated}`;\n  } else if (topResults) {\n    docsContext = `\\n\\nGefundene Quellen:\\n${topResults}`;\n  }\n} catch(e) { docsContext = ''; }\n\nconst words = task.toLowerCase().split(/\\s+/).filter(w => w.length > 2 && !['ein','eine','der','die','das','und','oder','via','mit','fuer','ueber','von','aus','baue','bau','erstelle','mcp','server','tool','einen','neue','neuen','neues'].includes(w));\nconst serverName = words.slice(0, 3).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || 'Custom Tool';\nconst path = words.slice(0, 2).join('-') || 'custom-tool';\n\nconst prompt = `Generiere JavaScript Code fuer einen n8n Sub-Workflow der API-Anfragen bearbeitet.\n\nAUFGABE: ${task}\n${docsContext}\n\nDer Code laeuft in einem n8n Code-Node. Parameter kommen ueber $json (z.B. $json.isbn).\n\nAntworte NUR mit einem JSON-Objekt:\n{\n  \"tool_name\": \"snake_case_name\",\n  \"description\": \"Was das Tool tut (1 Satz, fuer den AI Agent)\",\n  \"params\": [{\"name\": \"param1\", \"description\": \"was dieser param bedeutet\", \"type\": \"string\"}],\n  \"jsCode\": \"der JavaScript Code\"\n}\n\nREGELN fuer jsCode (laeuft in n8n Code Node, NICHT toolCode):\n- Parameter lesen: const isbn = $json.isbn || $input.first().json.isbn;\n- HTTP: await helpers.httpRequest({method:'GET', url:'...'})\n- Return MUSS ein Array sein: return [{json: {result: 'antwort als string'}}];\n- KEIN fetch(), KEIN require(), KEIN new URL()\n- Fehlerbehandlung einbauen\n\nBEISPIEL fuer ISBN lookup:\nconst isbn = $json.isbn || $input.first().json.isbn;\nif (!isbn) return [{json: {result: 'Fehler: ISBN fehlt'}}];\nconst data = await helpers.httpRequest({method:'GET', url:'https://openlibrary.org/api/books?bibkeys=ISBN:'+isbn+'&format=json&jscmd=data'});\nconst book = data['ISBN:'+isbn];\nif (!book) return [{json: {result: 'Nicht gefunden: '+isbn}}];\nreturn [{json: {result: 'Titel: '+book.title+', Autor: '+(book.authors?.[0]?.name||'unbekannt')}}];\n\nAntworte NUR mit dem JSON-Objekt!`;\n\nreturn [{json: {prompt, task, serverName, path}}];\n"
       },
       "id": "build-prompt",
       "name": "BuildPrompt",
