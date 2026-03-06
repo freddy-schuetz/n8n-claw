@@ -1018,7 +1018,20 @@ VALUES
   ('morning_briefing', '{}', 1440, false)
 ON CONFLICT (check_name) DO NOTHING;
 " 2>/dev/null
-echo -e "  ${GREEN}✅ Heartbeat config seeded (disabled by default)${NC}"
+
+# Enable heartbeat if user chose proactive behavior (only when personalization ran)
+if [ -n "$PROACTIVE_CHOICE" ]; then
+  if [ "$PROACTIVE_CHOICE" = "1" ]; then
+    PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres -c "
+    UPDATE public.heartbeat_config SET enabled = true WHERE check_name = 'heartbeat';
+    " 2>/dev/null
+    echo -e "  ${GREEN}✅ Heartbeat config seeded (proactive — heartbeat enabled)${NC}"
+  else
+    echo -e "  ${GREEN}✅ Heartbeat config seeded (reactive — heartbeat disabled)${NC}"
+  fi
+else
+  echo -e "  ${GREEN}✅ Heartbeat config seeded${NC}"
+fi
 
 # ── Done ─────────────────────────────────────────────────────
 PUBLIC_IP=$(curl -s --max-time 3 https://api.ipify.org 2>/dev/null || echo "YOUR-VPS-IP")
