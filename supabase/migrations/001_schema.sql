@@ -18,9 +18,10 @@ SET row_security = off;
 
 --
 -- Required extensions (n8n migrations need uuid_generate_v4)
+-- Must use explicit SCHEMA because pg_dump clears search_path above
 --
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS vector SCHEMA public;
 
 --
 -- Name: public; Type: SCHEMA; Schema: -; Owner: pg_database_owner
