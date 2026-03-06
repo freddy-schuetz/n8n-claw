@@ -423,6 +423,7 @@ Then restart: `docker compose up -d n8n`
 - **[Kong](https://konghq.com)** — API gateway
 - **[Claude](https://anthropic.com)** (Anthropic) — LLM powering the agent
 - **Telegram** — messaging interface
+- **[SearXNG](https://docs.searxng.org)** — self-hosted meta search engine (no API key needed)
 - **[Open-Meteo](https://open-meteo.com)** — free weather API (example MCP, no key needed)
 
 ---
