@@ -26,6 +26,7 @@ n8n-claw Agent (Claude Sonnet)
   ├── Memory Save/Search  — long-term memory with vector search
   ├── MCP Client          → calls tools on MCP Servers
   ├── MCP Builder          → creates new MCP Servers automatically
+  ├── Library Manager     → install/remove MCP templates from catalog
   ├── Reminder Factory    — timed Telegram reminders
   ├── HTTP Tool           — simple web requests
   ├── Web Search          — search the web (SearXNG)
@@ -143,6 +144,7 @@ Sub-workflows (called by other workflows, no manual activation needed):
 | Workflow | Called by |
 |---|---|
 | 🔌 MCP Client | Agent — calls tools on MCP Servers |
+| 📚 MCP Library Manager | Agent — installs/removes MCP templates from catalog |
 
 ### Step 4 — Start chatting
 
@@ -185,6 +187,22 @@ The MCP Builder will:
 5. Update the agent so it knows about the new tool
 
 > ⚠️ After each MCP build: **deactivate → reactivate** the new MCP workflow in n8n UI (required due to a webhook registration bug in n8n).
+
+---
+
+## MCP Template Library
+
+Instead of building every MCP server from scratch, you can install pre-built templates from the [template catalog](https://github.com/freddy-schuetz/n8n-claw-templates). Just ask your agent:
+
+> "What templates are available?"
+> "Install weather-openmeteo"
+> "Remove weather-openmeteo"
+
+The Library Manager fetches templates from GitHub, imports the workflows into n8n, and registers the new MCP server automatically.
+
+> ⚠️ After installing a template: **deactivate → reactivate** the new MCP workflow in n8n UI (same webhook bug as MCP Builder).
+
+Want to create your own templates? See the [template contribution guide](https://github.com/freddy-schuetz/n8n-claw-templates#creating-a-template).
 
 ---
 
