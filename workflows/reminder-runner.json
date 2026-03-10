@@ -89,7 +89,7 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict"
+            "typeValidation": "loose"
           },
           "conditions": [
             {
@@ -97,7 +97,7 @@
               "leftValue": "={{ $json.id }}",
               "rightValue": "",
               "operator": {
-                "type": "string",
+                "type": "number",
                 "operation": "exists"
               }
             }
