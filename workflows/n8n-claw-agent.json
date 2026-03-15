@@ -1455,6 +1455,7 @@
     {
       "parameters": {
         "chatId": "{{TELEGRAM_CHAT_ID}}",
+        "text": "={{ $fromAI('Text', '', 'string') }}",
         "additionalFields": {
           "appendAttribution": false,
           "parse_mode": "Markdown"
