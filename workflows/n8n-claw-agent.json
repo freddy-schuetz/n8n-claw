@@ -523,6 +523,17 @@
           }
         ]
       ]
+    },
+    "Telegram Status": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "nodes": [
@@ -1440,6 +1451,28 @@
         4112,
         208
       ]
+    },
+    {
+      "parameters": {
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "tool-telegram-status",
+      "name": "Telegram Status",
+      "type": "n8n-nodes-base.telegramTool",
+      "typeVersion": 1.2,
+      "position": [
+        4240,
+        208
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Telegram Bot"
+        }
+      }
     }
   ]
 }
