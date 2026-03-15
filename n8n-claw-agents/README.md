@@ -109,7 +109,7 @@ agents/
   "format_version": 1,
   "persona_key": "persona:my-agent",
   "display_name": "My Agent",
-  "content": "# My Agent\n\n## Expertise\n...\n\n## Arbeitsweise\n...\n\n## Qualitätsstandards\n..."
+  "content": "# My Agent\n\n## Expertise\n...\n\n## Workflow\n...\n\n## Quality Standards\n..."
 }
 ```
 
@@ -147,9 +147,9 @@ Expert agents are **pure expertise profiles** — they are tools, not personalit
 
 **DO:**
 - Define clear expertise areas (`## Expertise`)
-- Describe a structured workflow (`## Arbeitsweise`)
-- Set quality standards (`## Qualitätsstandards`)
-- Write in German (default language of n8n-claw)
+- Describe a structured workflow (`## Workflow`)
+- Set quality standards (`## Quality Standards`)
+- Write in English
 - Reference available tools where appropriate (HTTP, Web Search, MCP)
 
 **DON'T:**
@@ -168,7 +168,7 @@ The Sub-Agent Runner provides these tools to every expert agent automatically:
 | **Web Search** | DuckDuckGo instant answers and related topics |
 | **MCP Client** | Call tools on installed MCP skill servers |
 
-You don't need to configure these — just reference them in the persona's Arbeitsweise section where appropriate (e.g. "Recherchiere via Web Search").
+You don't need to configure these — just reference them in the persona's Workflow section where appropriate (e.g. "Recherchiere via Web Search").
 
 ### Example Persona
 
@@ -178,13 +178,13 @@ You don't need to configure these — just reference them in the persona's Arbei
 ## Expertise
 Web research, fact-checking, source evaluation, summarizing complex topics.
 
-## Arbeitsweise
+## Workflow
 1. Analyze the topic and research question
 2. Research multiple independent sources (Web Search + HTTP)
 3. Cross-check facts and identify contradictions
 4. Deliver structured results with source citations
 
-## Qualitätsstandards
+## Quality Standards
 - Always cite sources (URLs, titles)
 - Transparently flag uncertainties and knowledge gaps
 - Never present speculation as fact
@@ -215,7 +215,7 @@ When an agent is based on a prompt from that repo:
 2. The "Based on" column in the [Available Agents](#available-agents) table links to the original source
 3. Note the attribution in your PR description
 
-The original agency-agents format (`# Identity`, `# System Prompt`, `# Output Format`) must be adapted to our expertise-profile format (`## Expertise`, `## Arbeitsweise`, `## Qualitätsstandards`).
+The original agency-agents format (`# Identity`, `# System Prompt`, `# Output Format`) must be adapted to our expertise-profile format (`## Expertise`, `## Workflow`, `## Quality Standards`).
 
 ---
 
@@ -243,7 +243,7 @@ For a detailed guide with annotated examples, see [TEMPLATE_EXAMPLE.md](TEMPLATE
 - [ ] `index.json` entry matches manifest data
 - [ ] README table updated with new agent
 - [ ] If based on agency-agents: `based_on` field in manifest + noted in PR
-- [ ] All persona content in German (unless the agent's purpose requires another language)
+- [ ] All persona content in English
 
 ---
 

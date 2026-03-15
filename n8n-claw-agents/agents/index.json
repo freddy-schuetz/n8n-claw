@@ -7,8 +7,8 @@
       "name": "Research Expert",
       "version": "1.0.0",
       "category": "general",
-      "description": "Web-Recherche, Faktencheck, Quellenauswertung, Zusammenfassung komplexer Themen",
-      "emoji": "\ud83d\udd0d",
+      "description": "Web research, fact-checking, source evaluation, summarizing complex topics",
+      "emoji": "🔍",
       "author": "freddy-schuetz"
     },
     {
@@ -16,8 +16,8 @@
       "name": "Content Creator",
       "version": "1.0.0",
       "category": "general",
-      "description": "Texterstellung, Social Media Content, Blog-Artikel, Marketing-Texte, kreatives Schreiben",
-      "emoji": "\u270d\ufe0f",
+      "description": "Copywriting, social media content, blog articles, marketing copy, creative writing",
+      "emoji": "✍️",
       "author": "freddy-schuetz"
     },
     {
@@ -25,8 +25,8 @@
       "name": "Data Analyst",
       "version": "1.0.0",
       "category": "general",
-      "description": "Datenauswertung, Muster erkennen, strukturierte Reports, Kennzahlen interpretieren",
-      "emoji": "\ud83d\udcca",
+      "description": "Data analysis, pattern recognition, structured reports, KPI interpretation",
+      "emoji": "📊",
       "author": "freddy-schuetz"
     },
     {
@@ -35,7 +35,7 @@
       "version": "1.0.0",
       "category": "marketing",
       "description": "Technical SEO, content optimization, link authority building, and organic search growth",
-      "emoji": "\ud83d\udd0d",
+      "emoji": "🔍",
       "author": "freddy-schuetz"
     },
     {
@@ -44,7 +44,7 @@
       "version": "1.0.0",
       "category": "development",
       "description": "Constructive code reviews focused on correctness, security, maintainability, and performance",
-      "emoji": "\ud83d\udc41\ufe0f",
+      "emoji": "👁️",
       "author": "freddy-schuetz"
     }
   ]

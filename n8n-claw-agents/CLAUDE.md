@@ -76,7 +76,7 @@ If the persona is based on or inspired by [agency-agents](https://github.com/msi
   "format_version": 1,
   "persona_key": "persona:your-agent-id",
   "display_name": "Your Agent Name",
-  "content": "# Your Agent Name\n\n## Expertise\n...\n\n## Arbeitsweise\n...\n\n## Qualitätsstandards\n..."
+  "content": "# Your Agent Name\n\n## Expertise\n...\n\n## Workflow\n...\n\n## Quality Standards\n..."
 }
 ```
 
@@ -90,9 +90,9 @@ If the persona is based on or inspired by [agency-agents](https://github.com/msi
 
 **DO:**
 - Define clear expertise areas (`## Expertise`)
-- Describe a structured workflow (`## Arbeitsweise`)
-- Set quality standards (`## Qualitätsstandards`)
-- Write in German (default) or note the language in manifest
+- Describe a structured workflow (`## Workflow`)
+- Set quality standards (`## Quality Standards`)
+- Write in English
 
 **DON'T:**
 - Give the agent a name or personality traits
@@ -109,7 +109,7 @@ The Sub-Agent Runner provides these tools to every expert agent:
 - **Web Search** — DuckDuckGo instant answers
 - **MCP Client** — call tools on installed MCP skill servers
 
-You don't need to configure these — just reference them in the persona's Arbeitsweise where appropriate.
+You don't need to configure these — just reference them in the persona's Workflow section where appropriate.
 
 ---
 

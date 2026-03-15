@@ -51,7 +51,7 @@ agents/
   "format_version": 1,
   "persona_key": "persona:your-agent-id",
   "display_name": "Your Agent Name",
-  "content": "# Your Agent Name\n\n## Expertise\n...\n\n## Arbeitsweise\n...\n\n## Qualitätsstandards\n..."
+  "content": "# Your Agent Name\n\n## Expertise\n...\n\n## Workflow\n...\n\n## Quality Standards\n..."
 }
 ```
 
@@ -61,8 +61,8 @@ Expert agents are **pure expertise profiles** — they are tools, not personalit
 
 **DO:**
 - Define clear expertise areas
-- Describe a structured workflow (Arbeitsweise)
-- Set quality standards (Qualitätsstandards)
+- Describe a structured workflow (`## Workflow`)
+- Set quality standards (`## Quality Standards`)
 - Focus on what the agent does and how
 
 **DON'T:**
@@ -80,7 +80,7 @@ Sub-agents have access to:
 - **Web Search** — DuckDuckGo search
 - **MCP Client** — call tools on installed MCP servers
 
-Reference these in the Arbeitsweise section where appropriate.
+Reference these in the Workflow section where appropriate.
 
 ## 3. Update index.json
 
