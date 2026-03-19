@@ -456,6 +456,16 @@ creds=json.load(sys.stdin).get('data',[])
 for c in creds:
     if c.get('type')=='openAiApi': print(c['id']); break
 " 2>/dev/null)
+EXISTING_ANTHROPIC_ID=$(echo "$EXISTING_CREDS" | python3 -c "
+import sys,json
+creds=json.load(sys.stdin).get('data',[])
+for c in creds:
+    if c.get('type')=='anthropicApi': print(c['id']); break
+" 2>/dev/null)
+if [ -n "$EXISTING_ANTHROPIC_ID" ]; then
+  ANTHROPIC_CRED_ID="$EXISTING_ANTHROPIC_ID"
+  echo "  ✅ Anthropic API → ${ANTHROPIC_CRED_ID} (existing)"
+fi
 
 if [ -n "$EXISTING_TELEGRAM_ID" ]; then
   TELEGRAM_CRED_ID="$EXISTING_TELEGRAM_ID"
@@ -594,6 +604,8 @@ for f in workflows/*.json; do
     sed -i "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Supabase Postgres\"|${POSTGRES_CRED_ID}\", \"name\": \"Supabase Postgres\"|g" "$out"
   [ -n "$OPENAI_CRED_ID" ] && \
     sed -i "s|REPLACE_WITH_YOUR_OPENAI_CREDENTIAL_ID\", \"name\": \"OpenAI API\"|${OPENAI_CRED_ID}\", \"name\": \"OpenAI API\"|g" "$out"
+  [ -n "$ANTHROPIC_CRED_ID" ] && [ "$ANTHROPIC_CRED_ID" != "REPLACE_WITH_YOUR_CREDENTIAL_ID" ] && \
+    sed -i "s|REPLACE_WITH_YOUR_CREDENTIAL_ID\", \"name\": \"Anthropic API\"|${ANTHROPIC_CRED_ID}\", \"name\": \"Anthropic API\"|g" "$out"
 done
 IMPORT_ORDER="mcp-client reminder-factory reminder-runner mcp-weather-example workflow-builder mcp-builder mcp-library-manager agent-library-manager sub-agent-runner credential-form memory-consolidation background-checker heartbeat n8n-claw-agent"
 
