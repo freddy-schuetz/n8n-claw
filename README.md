@@ -540,8 +540,21 @@ With the OpenClaw skill installed, n8n-claw can delegate tasks to OpenClaw and g
 
 **Setup:**
 1. Install the OpenClaw skill: *"Install openclaw"*
-2. Enter your OpenClaw Gateway URL, API token, and caller ID via the credential form
-3. Start delegating tasks
+2. Enter your credentials via the secure form:
+   - **Gateway URL** — `http://<your-openclaw-ip>:18789`. To find the port, run on the OpenClaw server:
+     ```bash
+     grep -A2 'gateway:' ~/openclaw/config.yaml | grep port
+     ```
+   - **API Token** — run on the OpenClaw server:
+     ```bash
+     grep -A2 'gateway:' ~/openclaw/config.yaml | grep api_key
+     ```
+   - **Caller ID** — a name that identifies your n8n-claw instance (e.g. "Greg (n8n-claw)")
+3. Make sure OpenClaw's gateway is reachable from your n8n-claw server. The `bind` setting in `config.yaml` must be `"lan"` or `"0.0.0.0"` (not `"loopback"`):
+   ```bash
+   grep -A2 'gateway:' ~/openclaw/config.yaml | grep bind
+   ```
+4. Start delegating tasks
 
 This turns n8n-claw from a workflow-based agent into a bridge to a full autonomous coding agent — combining n8n-claw's strengths (memory, reminders, task management, Telegram interface, MCP skills) with OpenClaw's ability to execute arbitrary code and build software.
 
