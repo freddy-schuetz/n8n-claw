@@ -1,0 +1,107 @@
+{
+  "name": "OAuth Callback",
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "connections": {
+    "OAuth Callback Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate & Exchange",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Exchange": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "oauth-callback",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "oauth-callback-trigger",
+      "name": "OAuth Callback Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "oauth-callback-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = $input.first().json.query || $input.first().json;\nconst code = query.code;\nconst state = query.state;\n\nconst SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst N8N_PUBLIC_URL = '{{N8N_URL}}';\nconst TELEGRAM_BOT_TOKEN = '{{TELEGRAM_BOT_TOKEN}}';\nconst pgHeaders = {\n  'apikey': SUPABASE_KEY,\n  'Authorization': 'Bearer ' + SUPABASE_KEY,\n  'Content-Type': 'application/json'\n};\n\n// Validate inputs\nif (!code || !state) {\n  return [[], [{ json: { error: 'Missing code or state parameter.' } }]];\n}\n\n// 1. Validate state against oauth_states table\nlet stateRow;\ntry {\n  const rows = await helpers.httpRequest({\n    method: 'GET',\n    url: SUPABASE_URL + '/rest/v1/oauth_states?state=eq.' + state + '&select=*',\n    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }\n  });\n  if (!rows || rows.length === 0) {\n    return [[], [{ json: { error: 'Invalid or unknown state parameter.' } }]];\n  }\n  stateRow = rows[0];\n} catch(e) {\n  return [[], [{ json: { error: 'State validation failed: ' + e.message } }]];\n}\n\nif (stateRow.used) {\n  return [[], [{ json: { error: 'This authorization link has already been used.' } }]];\n}\n\nif (new Date(stateRow.expires_at) < new Date()) {\n  return [[], [{ json: { error: 'This authorization link has expired. Please request a new one.' } }]];\n}\n\n// 2. Mark state as used immediately (prevent replay)\ntry {\n  await helpers.httpRequest({\n    method: 'PATCH',\n    url: SUPABASE_URL + '/rest/v1/oauth_states?state=eq.' + state,\n    headers: { ...pgHeaders, 'Prefer': 'return=minimal' },\n    body: JSON.stringify({ used: true })\n  });\n} catch(e) { /* best effort */ }\n\n// 3. Read client_id + client_secret from template_credentials\nlet clientId, clientSecret;\ntry {\n  const creds = await helpers.httpRequest({\n    method: 'GET',\n    url: SUPABASE_URL + '/rest/v1/template_credentials?template_id=eq.google-oauth&select=cred_key,cred_value',\n    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }\n  });\n  const credMap = {};\n  for (const c of creds) credMap[c.cred_key] = c.cred_value;\n  clientId = credMap.client_id;\n  clientSecret = credMap.client_secret;\n} catch(e) {\n  return [[], [{ json: { error: 'Could not read OAuth credentials: ' + e.message } }]];\n}\n\nif (!clientId || !clientSecret) {\n  return [[], [{ json: { error: 'Google OAuth client_id or client_secret not found. Please enter them first.' } }]];\n}\n\n// 4. Exchange authorization code for tokens\nlet tokenData;\ntry {\n  const redirectUri = N8N_PUBLIC_URL + '/webhook/oauth-callback';\n  tokenData = await helpers.httpRequest({\n    method: 'POST',\n    url: 'https://oauth2.googleapis.com/token',\n    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },\n    body: 'grant_type=authorization_code'\n      + '&code=' + encodeURIComponent(code)\n      + '&redirect_uri=' + encodeURIComponent(redirectUri)\n      + '&client_id=' + encodeURIComponent(clientId)\n      + '&client_secret=' + encodeURIComponent(clientSecret)\n  });\n} catch(e) {\n  return [[], [{ json: { error: 'Token exchange failed: ' + e.message } }]];\n}\n\nif (tokenData.error) {\n  return [[], [{ json: { error: 'Google token error: ' + (tokenData.error_description || tokenData.error) } }]];\n}\n\n// 5. Store tokens in template_credentials (UPSERT via DELETE+INSERT)\nconst tokenExpiry = new Date(Date.now() + (tokenData.expires_in - 60) * 1000).toISOString();\n\nconst toStore = [\n  ['access_token', tokenData.access_token],\n  ['refresh_token', tokenData.refresh_token],\n  ['token_expiry', tokenExpiry],\n  ['scopes', stateRow.scopes]\n];\n\nfor (const [key, value] of toStore) {\n  if (!value) continue;\n  try {\n    await helpers.httpRequest({\n      method: 'DELETE',\n      url: SUPABASE_URL + '/rest/v1/template_credentials?template_id=eq.google-oauth&cred_key=eq.' + key,\n      headers: { ...pgHeaders, 'Prefer': 'return=minimal' }\n    });\n    await helpers.httpRequest({\n      method: 'POST',\n      url: SUPABASE_URL + '/rest/v1/template_credentials',\n      headers: { ...pgHeaders, 'Prefer': 'return=minimal' },\n      body: JSON.stringify({\n        template_id: 'google-oauth',\n        cred_key: key,\n        cred_value: value\n      })\n    });\n  } catch(e) {\n    return [[], [{ json: { error: 'Failed to store ' + key + ': ' + e.message } }]];\n  }\n}\n\n// 6. Notify user via Telegram (if chat_id available)\nif (stateRow.chat_id && TELEGRAM_BOT_TOKEN !== '{{TELEGRAM_BOT_TOKEN}}') {\n  try {\n    await helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({\n        chat_id: stateRow.chat_id,\n        text: '\\u2705 Google-Autorisierung erfolgreich abgeschlossen! Die angefragten Berechtigungen sind jetzt aktiv.',\n        parse_mode: 'HTML'\n      })\n    });\n  } catch(e) { /* non-critical */ }\n}\n\n// Success — return via output 0\nreturn [[{ json: { success: true, template_id: stateRow.template_id } }], []];"
+      },
+      "id": "validate-exchange",
+      "name": "Validate & Exchange",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Authorization Successful</title><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f0fdf4}div{text-align:center;padding:2rem;background:white;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.1);max-width:400px}h1{color:#16a34a;font-size:1.5rem}p{color:#6b7280;margin-top:0.5rem}</style></head><body><div><h1>✅ Autorisierung erfolgreich</h1><p>Du kannst dieses Fenster jetzt schließen.</p></div></body></html>",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [600, -100]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Authorization Failed</title><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#fef2f2}div{text-align:center;padding:2rem;background:white;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.1);max-width:400px}h1{color:#dc2626;font-size:1.5rem}p{color:#6b7280;margin-top:0.5rem}</style></head><body><div><h1>❌ Autorisierung fehlgeschlagen</h1><p>{{ $json.error }}</p><p>Bitte fordere einen neuen Autorisierungslink an.</p></div></body></html>",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [600, 100]
+    }
+  ]
+}

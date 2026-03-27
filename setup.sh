@@ -396,6 +396,17 @@ if [ -n "$SCHEMA_ERRORS" ]; then
 fi
 echo "  ✅ Schema applied"
 
+# Apply OAuth support migration
+echo "  Applying OAuth migration..."
+OAUTH_OUTPUT=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres \
+  -f supabase/migrations/003_oauth_support.sql 2>&1)
+OAUTH_ERRORS=$(echo "$OAUTH_OUTPUT" | grep -i "error" | head -5)
+if [ -n "$OAUTH_ERRORS" ]; then
+  echo -e "  ${YELLOW}⚠️  OAuth migration warnings:${NC}"
+  echo "$OAUTH_ERRORS" | while read line; do echo "    $line"; done
+fi
+echo "  ✅ OAuth migration applied"
+
 # Reload PostgREST schema cache so new tables are immediately available via API
 docker kill --signal=SIGUSR1 $(docker ps -q --filter name=rest) 2>/dev/null || true
 
@@ -650,6 +661,7 @@ for wf in data.get('data', []):
       -e "s|{{WEBHOOK_SECRET}}|${WEBHOOK_SECRET}|g" \
       -e "s|{{PAPERCLIP_INTERNAL_URL}}|${PAPERCLIP_INTERNAL_URL}|g" \
       -e "s|{{PAPERCLIP_AGENT_KEY}}|${PAPERCLIP_AGENT_KEY}|g" \
+      -e "s|{{TELEGRAM_BOT_TOKEN}}|${TELEGRAM_BOT_TOKEN}|g" \
       "$out"
 
     # Patch credential IDs
@@ -715,6 +727,7 @@ for f in workflows/*.json workflows/adapters/*.json; do
     -e "s|{{WEBHOOK_SECRET}}|${WEBHOOK_SECRET}|g" \
     -e "s|{{PAPERCLIP_INTERNAL_URL}}|${PAPERCLIP_INTERNAL_URL}|g" \
     -e "s|{{PAPERCLIP_AGENT_KEY}}|${PAPERCLIP_AGENT_KEY}|g" \
+    -e "s|{{TELEGRAM_BOT_TOKEN}}|${TELEGRAM_BOT_TOKEN}|g" \
     "$out"
   # Credential ID replacements — proper JSON manipulation (sed can't match
   # across line breaks, and "id"/"name" are on separate lines in the JSON)
@@ -749,7 +762,7 @@ with open(f, 'w') as fh:
     json.dump(wf, fh, indent=2, ensure_ascii=False)
 " "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}"
 done
-IMPORT_ORDER="mcp-client reminder-factory reminder-runner mcp-weather-example workflow-builder mcp-builder mcp-library-manager agent-library-manager sub-agent-runner credential-form memory-consolidation background-checker heartbeat webhook-adapter n8n-claw-agent"
+IMPORT_ORDER="mcp-client reminder-factory reminder-runner mcp-weather-example workflow-builder mcp-builder mcp-library-manager agent-library-manager sub-agent-runner credential-form oauth-callback memory-consolidation background-checker heartbeat webhook-adapter n8n-claw-agent"
 
 # n8n Public API settings whitelist — the PUT endpoint rejects any settings
 # field not in its OpenAPI schema (additionalProperties: false), even though
@@ -1032,6 +1045,14 @@ if [ -n "$CREDFORM_ID" ]; then
   curl -s -X POST "${N8N_BASE}/api/v1/workflows/${CREDFORM_ID}/activate" \
     -H "X-N8N-API-KEY: ${N8N_API_KEY}" > /dev/null 2>&1
   echo -e "  ${GREEN}✅ Credential Form workflow activated${NC}"
+fi
+
+# Activate OAuth Callback (must be active for Google OAuth redirect to work)
+OAUTH_CB_ID=${WF_IDS['oauth-callback']}
+if [ -n "$OAUTH_CB_ID" ]; then
+  curl -s -X POST "${N8N_BASE}/api/v1/workflows/${OAUTH_CB_ID}/activate" \
+    -H "X-N8N-API-KEY: ${N8N_API_KEY}" > /dev/null 2>&1
+  echo -e "  ${GREEN}✅ OAuth Callback workflow activated${NC}"
 fi
 
 # Activate Reminder Runner (polls DB every minute for due reminders)
