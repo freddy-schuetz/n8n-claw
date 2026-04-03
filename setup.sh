@@ -288,6 +288,8 @@ if [ "$INSTALL_MODE" = "update" ]; then
   echo "  Pulling latest images..."
   docker compose pull 2>&1 | tail -5
 fi
+echo "  Building local services..."
+docker compose build --no-cache 2>&1 | tail -5
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
 SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET \
 N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY \
