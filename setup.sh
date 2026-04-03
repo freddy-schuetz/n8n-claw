@@ -433,7 +433,38 @@ if [ "$STATUS" != "200" ]; then
   exit 1
 fi
 
-# ── 10b. Create n8n credentials (after API is confirmed ready) ──
+# ── 10b. Install community node ──────────────────────────────
+echo -e "\n${GREEN}📦 Installing community node n8n-nodes-claude-code-cli...${NC}"
+NODE_DIR="/home/node/.n8n/nodes"
+PKG_DIR="${NODE_DIR}/node_modules/n8n-nodes-claude-code-cli"
+
+if docker exec n8n-claw test -d "$PKG_DIR" 2>/dev/null; then
+  echo -e "  ${GREEN}✅ Already installed${NC}"
+else
+  set +e
+  docker exec -u node n8n-claw sh -c \
+    "mkdir -p ${NODE_DIR} && cd ${NODE_DIR} && npm install n8n-nodes-claude-code-cli --no-fund --no-audit 2>&1"
+  INSTALL_EXIT=$?
+  set -e
+  if [ $INSTALL_EXIT -eq 0 ]; then
+    echo -e "  ${GREEN}✅ Installed — restarting n8n to load node...${NC}"
+    docker restart n8n-claw
+    echo -e "  ${GREEN}⏳ Waiting for n8n to come back up...${NC}"
+    for i in {1..30}; do
+      STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
+        "${N8N_BASE}/api/v1/workflows" 2>/dev/null)
+      [ "$STATUS" = "200" ] && break
+      sleep 3; echo -n "."
+    done
+    echo ""
+    [ "$STATUS" != "200" ] && echo -e "  ${YELLOW}⚠️  n8n did not come back in time — continue manually${NC}"
+  else
+    echo -e "  ${YELLOW}⚠️  npm install failed (exit $INSTALL_EXIT) — install manually via n8n UI: Settings → Community Nodes${NC}"
+  fi
+fi
+
+# ── 10c. Create n8n credentials (after API is confirmed ready) ──
 # Wait for credentials endpoint too (may lag behind workflows after restart)
 for i in {1..10}; do
   CRED_CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
