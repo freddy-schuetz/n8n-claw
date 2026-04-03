@@ -1594,8 +1594,10 @@ When a user sends a document or photo via Telegram, the file is automatically st
 
 HOW TO USE file_ref IN TOOL CALLS:
 - Skills that support file uploads accept a file_ref parameter
-- Pass the EXACT file_ref ID from the message to the skill tool — do NOT invent or guess IDs
-- Example: if the message says [Document: invoice.pdf | file_ref: file-abc12345], use file_ref="file-abc12345"
+- Pass the EXACT file_ref ID string from the message — do NOT build URLs from it, do NOT use file_url for stored files
+- CORRECT: file_ref="file-abc12345"
+- WRONG: file_url="http://file-bridge:3200/files/file-abc12345"
+- The file_ref is just the ID (e.g. file-abc12345), NOT a URL
 
 SENDING FILES TO THE USER:
 - To send a file back to the user in Telegram, include this marker in your response:
