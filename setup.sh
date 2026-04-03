@@ -462,6 +462,22 @@ create_cred() {
   echo "$result"
 }
 
+# CLI import fallback — bypasses n8n Public API schema validation bug
+# (API rejects valid Anthropic/Postgres/OpenAI credentials due to overly strict allOf validation)
+import_cred() {
+  local cred_id="cred-$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
+  local json
+  json=$(python3 -c "
+import json, sys
+print(json.dumps([{'id': sys.argv[1], 'name': sys.argv[2], 'type': sys.argv[3], 'data': json.loads(sys.argv[4])}]))
+" "$cred_id" "$1" "$2" "$3" 2>/dev/null)
+  [ -z "$json" ] && return 1
+  echo "$json" | docker compose exec -T n8n sh -c "cat > /tmp/_cred.json && n8n import:credentials --input=/tmp/_cred.json && rm -f /tmp/_cred.json" > /dev/null 2>&1
+  if [ $? -eq 0 ]; then
+    echo "$cred_id"
+  fi
+}
+
 # Check if credentials already exist before creating
 EXISTING_CREDS=$(curl -s "${N8N_BASE}/api/v1/credentials" -H "X-N8N-API-KEY: ${N8N_API_KEY}")
 EXISTING_TELEGRAM_ID=$(echo "$EXISTING_CREDS" | python3 -c "
@@ -505,6 +521,9 @@ if [ -n "$EXISTING_ANTHROPIC_ID" ]; then
   echo "  ✅ Anthropic API → ${ANTHROPIC_CRED_ID} (existing)"
 elif [ -n "$ANTHROPIC_API_KEY" ] && [[ "$ANTHROPIC_API_KEY" != "your_"* ]]; then
   ANTHROPIC_CRED_ID=$(create_cred "Anthropic API" "anthropicApi" "{\"apiKey\":\"${ANTHROPIC_API_KEY}\"}")
+  if [ -z "$ANTHROPIC_CRED_ID" ]; then
+    ANTHROPIC_CRED_ID=$(import_cred "Anthropic API" "anthropicApi" "{\"apiKey\":\"${ANTHROPIC_API_KEY}\"}")
+  fi
   [ -z "$ANTHROPIC_CRED_ID" ] && echo -e "  ${YELLOW}⚠️  Anthropic credential failed — add manually in n8n UI${NC}" || echo "  ✅ Anthropic API → ${ANTHROPIC_CRED_ID} (created)"
 fi
 
@@ -520,17 +539,12 @@ if [ -n "$EXISTING_POSTGRES_ID" ]; then
   POSTGRES_CRED_ID="$EXISTING_POSTGRES_ID"
   echo "  ✅ Supabase Postgres → ${POSTGRES_CRED_ID} (existing)"
 else
-  # Postgres: try n8n CLI first, then REST
-  cat > /tmp/pg-cred.json <<PGEOF
-{"name":"Supabase Postgres","type":"postgres","data":{"host":"db","database":"postgres","user":"postgres","password":"${POSTGRES_PASSWORD}","port":5432,"ssl":"disable","allowUnauthorizedCerts":true,"sshTunnel":false,"sshAuthenticateWith":"password"}}
-PGEOF
-  POSTGRES_CRED_ID=$(docker compose run --rm -T n8n \
-    n8n import:credentials --input=/tmp/pg-cred.json 2>/dev/null | \
-    grep -oP '(?<=ID )\S+' | tail -1)
-  [ -z "$POSTGRES_CRED_ID" ] && \
-    POSTGRES_CRED_ID=$(curl -s -X POST "${N8N_BASE}/api/v1/credentials" \
-      -H "X-N8N-API-KEY: ${N8N_API_KEY}" -H "Content-Type: application/json" \
-      -d @/tmp/pg-cred.json | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+  # Postgres: try API first, then CLI import fallback
+  PG_DATA="{\"host\":\"db\",\"database\":\"postgres\",\"user\":\"postgres\",\"password\":\"${POSTGRES_PASSWORD}\",\"port\":5432,\"ssl\":\"disable\",\"allowUnauthorizedCerts\":true,\"sshTunnel\":false,\"sshAuthenticateWith\":\"password\"}"
+  POSTGRES_CRED_ID=$(create_cred "Supabase Postgres" "postgres" "$PG_DATA")
+  if [ -z "$POSTGRES_CRED_ID" ]; then
+    POSTGRES_CRED_ID=$(import_cred "Supabase Postgres" "postgres" "$PG_DATA")
+  fi
   if [ -z "$POSTGRES_CRED_ID" ]; then
     echo -e "  ${YELLOW}⚠️  Postgres credential — add manually:${NC}"
     echo "     Host: db | DB: postgres | User: postgres | Pass: ${POSTGRES_PASSWORD} | SSL: disable"
@@ -548,6 +562,9 @@ if [ -n "$OPENAI_API_KEY" ] && [[ "$OPENAI_API_KEY" != "your_"* ]]; then
     echo "  ✅ OpenAI API → ${OPENAI_CRED_ID} (existing)"
   else
     OPENAI_CRED_ID=$(create_cred "OpenAI API" "openAiApi" "{\"apiKey\":\"${OPENAI_API_KEY}\"}")
+    if [ -z "$OPENAI_CRED_ID" ]; then
+      OPENAI_CRED_ID=$(import_cred "OpenAI API" "openAiApi" "{\"apiKey\":\"${OPENAI_API_KEY}\"}")
+    fi
     [ -z "$OPENAI_CRED_ID" ] && echo -e "  ${YELLOW}⚠️  OpenAI credential failed — voice transcription won't work${NC}" || echo "  ✅ OpenAI API → ${OPENAI_CRED_ID} (created)"
   fi
 else
@@ -566,7 +583,7 @@ fi
 
 fi  # end INSTALL_MODE guard for credentials
 set -e
-rm -f /tmp/pg-cred.json
+# (pg-cred.json no longer created — CLI import writes directly into container)
 
 # ── Paperclip integration (optional, before workflow import) ──
 # Must run before sed replaces {{PAPERCLIP_*}} placeholders in workflows
