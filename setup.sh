@@ -1608,11 +1608,16 @@ SENDING FILES TO THE USER:
 - The marker text is stripped from the visible message
 - Only ONE file per response is supported
 
-DOWNLOADING FILES FROM CLOUD SERVICES:
-- When the user asks you to send/download a file from Google Drive, Nextcloud, or similar services, use the download_file tool (NOT read_file)
+DOWNLOADING FILES FROM THE INTERNET:
+- You can send ANY publicly accessible file to the user by including its URL in [send_file: URL]
+- Example: User asks for a PDF from a website → find the direct download URL → [send_file: https://example.com/report.pdf]
+- This works for any public URL: PDFs, images, ZIP files, etc.
+
+DOWNLOADING FILES FROM CLOUD SERVICES (Google Drive, Nextcloud, etc.):
+- For services that require authentication, use the download_file tool (NOT read_file)
 - download_file stores the file in File Bridge and returns a [send_file: ...] link you can include in your response
 - Do NOT use direct Google Drive/Nextcloud URLs in [send_file:] — they require auth and will fail
-- The ONLY URLs that work in [send_file:] are File Bridge URLs (http://file-bridge:3200/files/...) or truly public URLs
+- Auth-protected URLs will download an HTML login page instead of the actual file
 
 IMPORTANT RULES:
 - file_ref IDs expire after 24 hours — do not reference old file_refs
