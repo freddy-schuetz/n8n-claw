@@ -146,6 +146,21 @@ services:
     networks:
       - n8n-claw-net
 
+  # ── File Bridge (temporary file storage for agent binary passthrough) ──
+  file-bridge:
+    build: ./file-bridge
+    container_name: n8n-claw-file-bridge
+    restart: unless-stopped
+    expose:
+      - "3200"
+    volumes:
+      - file_bridge_data:/data
+    environment:
+      - UPLOAD_TTL_HOURS=24
+      - MAX_FILE_SIZE_MB=20
+    networks:
+      - n8n-claw-net
+
   # ── Crawl4AI (Web Reader — clean markdown from URLs) ────────
   crawl4ai:
     image: unclecode/crawl4ai:latest
@@ -174,6 +189,7 @@ services:
 volumes:
   n8n_data:
   db_data:
+  file_bridge_data:
 
 networks:
   n8n-claw-net:

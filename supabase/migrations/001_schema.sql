@@ -832,6 +832,28 @@ CREATE INDEX idx_memory_daily_date ON public.memory_daily USING btree (date DESC
 
 
 --
+-- Name: file_refs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE IF NOT EXISTS public.file_refs (
+    id text NOT NULL PRIMARY KEY,
+    session_id text NOT NULL,
+    user_id text,
+    file_name text NOT NULL,
+    mime_type text DEFAULT 'application/octet-stream'::text NOT NULL,
+    size_bytes integer,
+    bridge_url text NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    expires_at timestamp with time zone DEFAULT (now() + '24:00:00'::interval)
+);
+
+ALTER TABLE public.file_refs OWNER TO postgres;
+
+CREATE INDEX IF NOT EXISTS idx_file_refs_session ON public.file_refs USING btree (session_id);
+CREATE INDEX IF NOT EXISTS idx_file_refs_expires ON public.file_refs USING btree (expires_at);
+
+
+--
 -- Name: idx_memory_long_category; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -887,6 +909,15 @@ GRANT ALL ON FUNCTION public.search_memory_keyword(search_query text, match_coun
 GRANT ALL ON TABLE public.agents TO anon;
 GRANT ALL ON TABLE public.agents TO authenticated;
 GRANT ALL ON TABLE public.agents TO service_role;
+
+
+--
+-- Name: TABLE file_refs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.file_refs TO anon;
+GRANT ALL ON TABLE public.file_refs TO authenticated;
+GRANT ALL ON TABLE public.file_refs TO service_role;
 
 
 --

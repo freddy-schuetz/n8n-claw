@@ -56,6 +56,7 @@ Talk to your agent in natural language — it manages tasks, remembers context a
 - **Scheduled actions** — the agent executes instructions at a set time ("search HN for AI news at 9am")
 - **Web search** — searches the web via built-in SearXNG instance (no API key needed)
 - **Web reader** — reads webpages as clean markdown via Crawl4AI (JS rendering, no boilerplate)
+- **File passthrough** — stores documents and photos from Telegram so Skills can use the originals (upload to Lexware, save to Nextcloud, etc.)
 - **Project memory** — persistent markdown documents for tracking ongoing work across conversations
 - **OpenClaw integration** — delegate coding tasks to an autonomous AI agent that can build websites, apps, and run shell commands
 - **Extensible** — add new skills and capabilities through natural language or from the skill catalog
@@ -93,10 +94,14 @@ Webhook Adapter (optional, connects external systems):
   🛠️ Custom Webhook    ──┘   (Set node — easy to customize, no code)
 
 Background Workflows (automated):
-  💓 Heartbeat              — every 5 min: recurring actions + proactive reminders
+  💓 Heartbeat              — every 5 min: recurring actions + proactive reminders + file cleanup
   🔍 Background Checker     — silent checks: only notifies when something new is found
   🧠 Memory Consolidation   — daily at 3am: summarizes conversations → long-term memory
   ⏰ Reminder Runner         — every 1 min: sends due reminders + triggers one-time actions
+
+Internal Services:
+  📁 File Bridge            — temporary binary storage (documents, photos) for tool passthrough
+  📧 Email Bridge           — IMAP/SMTP REST API for email integration
 ```
 
 ---
@@ -138,7 +143,7 @@ The script will:
    - Communication style (casual / professional / friendly)
    - Proactive vs reactive behavior
    - Free-text custom persona *(overrides the above)*
-6. **Start all services** (n8n, PostgreSQL, PostgREST, Kong, Supabase Studio, SearXNG, Crawl4AI, Email Bridge)
+6. **Start all services** (n8n, PostgreSQL, PostgREST, Kong, Supabase Studio, SearXNG, Crawl4AI, Email Bridge, File Bridge)
 7. **Apply database schema** and seed data
 8. **Create n8n credentials** (Telegram Bot automatically)
 9. **Import all workflows** into n8n
@@ -275,6 +280,7 @@ After setup, these services run:
 | SearXNG | `http://localhost:8888` (Docker-internal) | Self-hosted web search engine |
 | Crawl4AI | Docker-internal only | Web reader — JS rendering to clean markdown |
 | Email Bridge | `http://localhost:3100` (Docker-internal) | IMAP/SMTP email REST API (for Email skill) |
+| File Bridge | `http://localhost:3200` (Docker-internal) | Temporary file storage for binary passthrough between tools |
 | PostgREST API | `http://kong:8000` (Docker-internal only) | REST API for PostgreSQL |
 
 ### Accessing Supabase Studio
@@ -823,15 +829,24 @@ The agent understands more than just text — send voice messages, photos, docum
 | Media type | What happens | Requires |
 |---|---|---|
 | **Voice messages** | Transcribed via OpenAI Whisper, then processed as text | OpenAI API Key |
-| **Photos** | Analyzed via OpenAI Vision (GPT-4o-mini), description passed to agent | OpenAI API Key |
-| **Documents (PDF)** | Text extracted via n8n's built-in PDF parser, passed to agent | — (built-in) |
+| **Photos** | Analyzed via OpenAI Vision (GPT-4o-mini), description passed to agent. Original stored in File Bridge for later use. | OpenAI API Key |
+| **Documents (PDF)** | Text extracted via n8n's built-in PDF parser, passed to agent. Original stored in File Bridge for later use. | — (built-in) |
 | **Location** | Converted to coordinates text, agent responds with context | — (built-in) |
 
 **Voice and photo analysis** require an OpenAI API key (configured during setup). Without it, voice messages and photos won't work — but documents and locations function without any extra API keys.
 
+### File Storage (Binary Passthrough)
+
+When you send a document or photo, the agent extracts text/description for the conversation **and** stores the original binary in the File Bridge service. This means the agent can later pass the file to MCP Skills — for example, uploading a receipt to Lexware or saving a photo to Nextcloud.
+
+- Files are stored temporarily (24 hours) and automatically cleaned up
+- The agent references stored files via `file_ref` IDs — the LLM never sees binary data
+- Skills that support file uploads accept both `file_ref` (stored files) and `file_url` (external URLs)
+- The agent can also send files back to the Telegram chat using the `[send_file: URL]` convention
+
 > *[send a voice message]* — automatically transcribed and answered
-> *[send a photo]* — "What do you see?" — analyzed by GPT-4o-mini Vision
-> *[send a PDF]* — text extracted and analyzed by the agent
+> *[send a photo]* — "What do you see?" — analyzed by GPT-4o-mini Vision, original stored for tool use
+> *[send a PDF]* — text extracted and analyzed, original stored for tool use
 > *[share location]* — agent responds with location context
 
 </details>
@@ -1281,6 +1296,7 @@ chmod 600 ~/.ssh/authorized_keys
 - **[SearXNG](https://docs.searxng.org)** — self-hosted meta search engine (no API key needed)
 - **[Crawl4AI](https://github.com/unclecode/crawl4ai)** — self-hosted web crawler, returns clean markdown (JS rendering)
 - **Email Bridge** — lightweight IMAP/SMTP REST API for email integration
+- **File Bridge** — temporary file storage for binary passthrough between agent tools
 - **[Open-Meteo](https://open-meteo.com)** — free weather API (example MCP, no key needed)
 
 ---
