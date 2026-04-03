@@ -56,7 +56,7 @@ Talk to your agent in natural language — it manages tasks, remembers context a
 - **Scheduled actions** — the agent executes instructions at a set time ("search HN for AI news at 9am")
 - **Web search** — searches the web via built-in SearXNG instance (no API key needed)
 - **Web reader** — reads webpages as clean markdown via Crawl4AI (JS rendering, no boilerplate)
-- **File passthrough** — stores documents and photos from Telegram so Skills can use the originals (upload to Lexware, save to Nextcloud, etc.)
+- **File passthrough** — stores documents and photos from Telegram so Skills can use the originals (upload to Lexware, save to Nextcloud, etc.). Can also download files from the internet or cloud services and send them back to the chat.
 - **Project memory** — persistent markdown documents for tracking ongoing work across conversations
 - **OpenClaw integration** — delegate coding tasks to an autonomous AI agent that can build websites, apps, and run shell commands
 - **Extensible** — add new skills and capabilities through natural language or from the skill catalog
@@ -449,7 +449,7 @@ The `_responseChannel` value in metadata tells the adapter where to route the ag
 
 </summary>
 
-**37 pre-built skills** available from the [skill catalog](https://github.com/freddy-schuetz/n8n-claw-templates) — install with a single chat command, no coding required.
+**40 pre-built skills** available from the [skill catalog](https://github.com/freddy-schuetz/n8n-claw-templates) — install with a single chat command, no coding required.
 
 > "What skills are available?"
 > "Install weather-openmeteo"
@@ -460,15 +460,19 @@ The Library Manager fetches skill templates from GitHub, imports the workflows i
 | Category | Examples |
 |---|---|
 | Communication | Gmail, Email (IMAP/SMTP), OpenClaw |
-| Productivity | Todoist, Notion, GitHub, Google Calendar, Nextcloud Files |
+| Productivity | Todoist, Notion, GitHub, Google Calendar, Google Drive, Nextcloud Files, Seafile, CalDAV, Vikunja, NocoDB CRM |
 | Finance | KontoFlux (Open Banking), Exchange Rates, Crypto Prices |
-| Knowledge | Wikipedia, OpenFoodFacts, Dictionary |
+| Knowledge | Wikipedia, OpenFoodFacts, OpenWebUI Knowledge |
 | Transport | Deutsche Bahn, Route Planner, Wiener Linien |
-| Language | DeepL Translate |
+| Language | DeepL Translate, Dictionary |
 | News | Hacker News, NewsAPI |
-| Analytics | Google Analytics, Google Ads |
-| Utilities | PDF Tools, QR Code, Website Check |
-| Entertainment | TMDB Movies, Recipes |
+| Analytics | Google Analytics |
+| Marketing | Google Ads |
+| Meetings | Vexa Meetings |
+| Network | Website Check, IP Geolocation |
+| Reference | Country Info, Public Holidays, Timezone / World Clock |
+| Utilities | PDF Tools, QR Code |
+| Entertainment | TMDB Movies, Recipes, Trivia |
 
 See the full catalog at [n8n-claw-templates](https://github.com/freddy-schuetz/n8n-claw-templates).
 
@@ -842,7 +846,8 @@ When you send a document or photo, the agent extracts text/description for the c
 - Files are stored temporarily (24 hours) and automatically cleaned up
 - The agent references stored files via `file_ref` IDs — the LLM never sees binary data
 - Skills that support file uploads accept both `file_ref` (stored files) and `file_url` (external URLs)
-- The agent can also send files back to the Telegram chat using the `[send_file: URL]` convention
+- The agent can send files back to the Telegram chat — from public URLs, cloud services (Google Drive, Nextcloud), or any skill that produces a file
+- Cloud service skills with `download_file` handle authentication automatically — the agent downloads the file, stores it in the File Bridge, and delivers it to Telegram
 
 > *[send a voice message]* — automatically transcribed and answered
 > *[send a photo]* — "What do you see?" — analyzed by GPT-4o-mini Vision, original stored for tool use
