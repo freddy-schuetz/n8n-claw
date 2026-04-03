@@ -414,6 +414,7 @@ N8N_BASE="${N8N_URL:-http://localhost:5678}"
 ANTHROPIC_CRED_ID="${ANTHROPIC_CRED_ID:-REPLACE_WITH_YOUR_CREDENTIAL_ID}"
 POSTGRES_CRED_ID="REPLACE_WITH_YOUR_CREDENTIAL_ID"
 TELEGRAM_CRED_ID=""
+CLAUDE_CODE_SSH_CRED_ID="REPLACE_WITH_YOUR_CREDENTIAL_ID"
 
 # ── 10. Wait for n8n API to be ready ────────────────────────
 echo -e "\n${GREEN}⏳ Waiting for n8n API...${NC}"
@@ -433,7 +434,54 @@ if [ "$STATUS" != "200" ]; then
   exit 1
 fi
 
-# ── 10b. Create n8n credentials (after API is confirmed ready) ──
+# ── 10b. Install community node ──────────────────────────────
+echo -e "\n${GREEN}📦 Installing community node n8n-nodes-claude-code-cli...${NC}"
+NODE_DIR="/home/node/.n8n/nodes"
+PKG_DIR="${NODE_DIR}/node_modules/n8n-nodes-claude-code-cli"
+
+if docker exec n8n-claw test -d "$PKG_DIR" 2>/dev/null; then
+  echo -e "  ${GREEN}✅ Already installed${NC}"
+else
+  set +e
+  docker exec -u node n8n-claw sh -c \
+    "mkdir -p ${NODE_DIR} && cd ${NODE_DIR} && npm install n8n-nodes-claude-code-cli ssh2 --no-fund --no-audit 2>&1"
+  INSTALL_EXIT=$?
+  set -e
+  if [ $INSTALL_EXIT -eq 0 ]; then
+    echo -e "  ${GREEN}✅ Installed — restarting n8n to load node...${NC}"
+    docker restart n8n-claw
+    echo -e "  ${GREEN}⏳ Waiting for n8n to come back up...${NC}"
+    for i in {1..30}; do
+      STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
+        "${N8N_BASE}/api/v1/workflows" 2>/dev/null)
+      [ "$STATUS" = "200" ] && break
+      sleep 3; echo -n "."
+    done
+    echo ""
+    [ "$STATUS" != "200" ] && echo -e "  ${YELLOW}⚠️  n8n did not come back in time — continue manually${NC}"
+  else
+    echo -e "  ${YELLOW}⚠️  npm install failed (exit $INSTALL_EXIT) — install manually via n8n UI: Settings → Community Nodes${NC}"
+  fi
+fi
+
+# ── 10b-2. Generate SSH key pair for Claude Code CLI ─────────
+SSH_KEY_FILE="${HOME}/.ssh/n8n-claude-code"
+SSH_USERNAME="$(whoami)"
+if [ ! -f "$SSH_KEY_FILE" ]; then
+  echo -e "\n${GREEN}🔑 Generating SSH key pair for Claude Code CLI...${NC}"
+  mkdir -p "${HOME}/.ssh" && chmod 700 "${HOME}/.ssh"
+  ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -C "n8n-claude-code" -N "" -q
+  if ! grep -qF "$(cat ${SSH_KEY_FILE}.pub)" "${HOME}/.ssh/authorized_keys" 2>/dev/null; then
+    cat "${SSH_KEY_FILE}.pub" >> "${HOME}/.ssh/authorized_keys"
+    chmod 600 "${HOME}/.ssh/authorized_keys"
+  fi
+  echo -e "  ${GREEN}✅ Key pair created: ${SSH_KEY_FILE}${NC}"
+else
+  echo -e "\n${GREEN}🔑 SSH key for Claude Code already exists — skipping${NC}"
+fi
+
+# ── 10c. Create n8n credentials (after API is confirmed ready) ──
 # Wait for credentials endpoint too (may lag behind workflows after restart)
 for i in {1..10}; do
   CRED_CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -564,6 +612,55 @@ else
   [ -z "$HEADERAUTH_CRED_ID" ] && echo -e "  ${YELLOW}⚠️  Webhook Auth credential failed — create manually in n8n UI${NC}" || echo "  ✅ Webhook Auth → ${HEADERAUTH_CRED_ID} (created)"
 fi
 
+# Claude Code SSH credential (uses key generated in step 10b-2)
+EXISTING_CLAUDESSH_ID=$(echo "$EXISTING_CREDS" | python3 -c "
+import sys,json
+creds=json.load(sys.stdin).get('data',[])
+print(next((c['id'] for c in creds if c.get('type')=='claudeCodeSshApi'),''))
+" 2>/dev/null)
+if [ -n "$EXISTING_CLAUDESSH_ID" ]; then
+  CLAUDE_CODE_SSH_CRED_ID="$EXISTING_CLAUDESSH_ID"
+  echo "  ✅ Claude Code SSH → ${CLAUDE_CODE_SSH_CRED_ID} (existing)"
+elif [ -f "$SSH_KEY_FILE" ]; then
+  CLAUDE_CODE_SSH_CRED_ID=$(python3 << PYEOF
+import json, subprocess, sys, os
+key_file = '${SSH_KEY_FILE}'
+try:
+    with open(key_file) as f:
+        private_key = f.read().strip()
+except Exception:
+    sys.exit(0)
+data = {
+    'host': '172.17.0.1', 'port': 22,
+    'username': '${SSH_USERNAME}',
+    'authMethod': 'privateKey',
+    'privateKey': private_key,
+    'privateKeyPath': '',
+    'passphrase': '',
+    'claudePath': 'claude',
+    'defaultWorkingDir': ''
+}
+payload = json.dumps({'name': 'Claude Code Runner SSH', 'type': 'claudeCodeSshApi', 'data': data})
+result = subprocess.run(
+    ['curl', '-s', '-X', 'POST', '${N8N_BASE}/api/v1/credentials',
+     '-H', 'X-N8N-API-KEY: ${N8N_API_KEY}',
+     '-H', 'Content-Type: application/json',
+     '-d', payload],
+    capture_output=True, text=True)
+resp = json.loads(result.stdout)
+print(resp.get('id', ''))
+PYEOF
+  )
+  if [ -n "$CLAUDE_CODE_SSH_CRED_ID" ] && [ "$CLAUDE_CODE_SSH_CRED_ID" != "REPLACE_WITH_YOUR_CREDENTIAL_ID" ]; then
+    echo "  ✅ Claude Code SSH → ${CLAUDE_CODE_SSH_CRED_ID} (created)"
+  else
+    echo -e "  ${YELLOW}⚠️  Claude Code SSH credential failed — create manually in n8n UI${NC}"
+    CLAUDE_CODE_SSH_CRED_ID="REPLACE_WITH_YOUR_CREDENTIAL_ID"
+  fi
+else
+  echo -e "  ${YELLOW}ℹ️  SSH key not found — skipping Claude Code SSH credential${NC}"
+fi
+
 fi  # end INSTALL_MODE guard for credentials
 set -e
 rm -f /tmp/pg-cred.json
@@ -680,6 +777,8 @@ if sys.argv[5] and sys.argv[5] not in ('',):
 if len(sys.argv) > 6 and sys.argv[6] and sys.argv[6] not in ('', 'REPLACE_WITH_YOUR_CREDENTIAL_ID'):
     mapping['httpHeaderAuth'] = sys.argv[6]
 slack_id = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else ''
+if len(sys.argv) > 8 and sys.argv[8] and sys.argv[8] not in ('', 'REPLACE_WITH_YOUR_CREDENTIAL_ID'):
+    mapping['claudeCodeSshApi'] = sys.argv[8]
 with open(f) as fh:
     wf = json.load(fh)
 for node in wf.get('nodes', []):
@@ -694,7 +793,7 @@ for node in wf.get('nodes', []):
                 node.pop('disabled', None)
 with open(f, 'w') as fh:
     json.dump(wf, fh, indent=2, ensure_ascii=False)
-" "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}"
+" "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}" "${CLAUDE_CODE_SSH_CRED_ID:-}"
 
     resp=$(curl -s -X POST "${N8N_BASE}/api/v1/workflows" \
       -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
@@ -746,6 +845,8 @@ if sys.argv[5] and sys.argv[5] not in ('',):
 if len(sys.argv) > 6 and sys.argv[6] and sys.argv[6] not in ('', 'REPLACE_WITH_YOUR_CREDENTIAL_ID'):
     mapping['httpHeaderAuth'] = sys.argv[6]
 slack_id = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else ''
+if len(sys.argv) > 8 and sys.argv[8] and sys.argv[8] not in ('', 'REPLACE_WITH_YOUR_CREDENTIAL_ID'):
+    mapping['claudeCodeSshApi'] = sys.argv[8]
 with open(f) as fh:
     wf = json.load(fh)
 for node in wf.get('nodes', []):
@@ -760,7 +861,7 @@ for node in wf.get('nodes', []):
                 node.pop('disabled', None)
 with open(f, 'w') as fh:
     json.dump(wf, fh, indent=2, ensure_ascii=False)
-" "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}"
+" "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}" "${CLAUDE_CODE_SSH_CRED_ID:-}"
 done
 IMPORT_ORDER="mcp-client reminder-factory reminder-runner mcp-weather-example workflow-builder mcp-builder mcp-library-manager agent-library-manager sub-agent-runner credential-form oauth-callback memory-consolidation background-checker heartbeat webhook-adapter n8n-claw-agent"
 
