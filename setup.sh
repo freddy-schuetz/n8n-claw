@@ -288,6 +288,8 @@ if [ "$INSTALL_MODE" = "update" ]; then
   echo "  Pulling latest images..."
   docker compose pull 2>&1 | tail -5
 fi
+echo "  Building local services..."
+docker compose build --no-cache 2>&1 | tail -5
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
 SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET \
 N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY \
@@ -1585,6 +1587,38 @@ PREFERENCES (set_preference action):
 - Respond in the user''s language (check their language preference)
 - This introduction happens ONLY ONCE. If setup_done is true, skip this entirely and respond normally.
 - setup_done will be set to true automatically after your first response — you do not need to do this yourself.'),
+
+  ('file_storage', 'FILE STORAGE — Binary File Passthrough
+
+When a user sends a document or photo via Telegram, the file is automatically stored in the File Bridge and a file_ref ID is included in the message:
+  [Document: invoice.pdf | file_ref: <actual-id>]
+  [Photo | file_ref: <actual-id>]
+
+HOW TO USE file_ref IN TOOL CALLS:
+- Skills that support file uploads accept a file_ref parameter
+- Pass the EXACT file_ref ID string from the message — do NOT build URLs from it, do NOT use file_url for stored files
+- CORRECT: file_ref="file-abc12345"
+- WRONG: file_url="http://file-bridge:3200/files/file-abc12345"
+- The file_ref is just the ID (e.g. file-abc12345), NOT a URL
+
+SENDING FILES TO THE USER:
+- To send a file back to the user in Telegram, include this marker in your response:
+  [send_file: http://file-bridge:3200/files/<file_ref_id>]
+- The marker is automatically detected and the file is sent as a Telegram document
+- The marker text is stripped from the visible message
+- Only ONE file per response is supported
+
+DOWNLOADING FILES FROM CLOUD SERVICES:
+- When the user asks you to send/download a file from Google Drive, Nextcloud, or similar services, use the download_file tool (NOT read_file)
+- download_file stores the file in File Bridge and returns a [send_file: ...] link you can include in your response
+- Do NOT use direct Google Drive/Nextcloud URLs in [send_file:] — they require auth and will fail
+- The ONLY URLs that work in [send_file:] are File Bridge URLs (http://file-bridge:3200/files/...) or truly public URLs
+
+IMPORTANT RULES:
+- file_ref IDs expire after 24 hours — do not reference old file_refs
+- Always mention the original filename when discussing stored files
+- If a skill needs a file the user sent earlier in the conversation, use the file_ref from that message
+- For skills that accept both file_ref and file_url: prefer file_ref for files the user sent, file_url for external URLs'),
 
   ('user_context', 'The user is {user}. Context: {ctx}')
 

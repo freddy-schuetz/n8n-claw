@@ -1,5 +1,5 @@
 {
-  "name": "\ud83d\udc93 Heartbeat",
+  "name": "💓 Heartbeat",
   "settings": {
     "executionOrder": "v1"
   },
@@ -9,6 +9,11 @@
         [
           {
             "node": "Load Due Actions",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Cleanup Expired Files",
             "type": "main",
             "index": 0
           }
@@ -151,7 +156,10 @@
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -162,7 +170,10 @@
       "name": "Load Due Actions",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 0]
+      "position": [
+        220,
+        0
+      ]
     },
     {
       "parameters": {
@@ -190,7 +201,10 @@
       "name": "Has Actions",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [440, 0]
+      "position": [
+        440,
+        0
+      ]
     },
     {
       "parameters": {
@@ -201,7 +215,10 @@
       "name": "Loop Over Actions",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [660, 0]
+      "position": [
+        660,
+        0
+      ]
     },
     {
       "parameters": {
@@ -229,7 +246,10 @@
       "name": "Route by Notify Mode",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [880, 0]
+      "position": [
+        880,
+        0
+      ]
     },
     {
       "parameters": {
@@ -246,7 +266,10 @@
       "name": "Execute Background Checker",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
-      "position": [1100, -120]
+      "position": [
+        1100,
+        -120
+      ]
     },
     {
       "parameters": {
@@ -256,7 +279,10 @@
       "name": "Handle Checker Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1320, -120]
+      "position": [
+        1320,
+        -120
+      ]
     },
     {
       "parameters": {
@@ -284,7 +310,10 @@
       "name": "Should Notify",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1540, -120]
+      "position": [
+        1540,
+        -120
+      ]
     },
     {
       "parameters": {
@@ -297,7 +326,10 @@
       "name": "Send Telegram",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1760, -200],
+      "position": [
+        1760,
+        -200
+      ],
       "credentials": {
         "telegramApi": {
           "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
@@ -320,7 +352,10 @@
       "name": "Execute Agent",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
-      "position": [1100, 120]
+      "position": [
+        1100,
+        120
+      ]
     },
     {
       "parameters": {
@@ -331,7 +366,23 @@
       "name": "Update Action",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1980, 0]
+      "position": [
+        1980,
+        0
+      ]
+    },
+    {
+      "id": "cleanup-expired-files",
+      "name": "Cleanup Expired Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst BRIDGE_URL = 'http://file-bridge:3200';\n\n// 1. Cleanup expired files on File Bridge\nlet bridgeResult = { cleaned: 0 };\ntry {\n  bridgeResult = await helpers.httpRequest({\n    method: 'DELETE',\n    url: BRIDGE_URL + '/cleanup'\n  });\n} catch(e) {\n  // File Bridge may not be running yet\n}\n\n// 2. Cleanup expired metadata in DB\nlet dbResult = null;\ntry {\n  dbResult = await helpers.httpRequest({\n    method: 'DELETE',\n    url: SUPABASE_URL + '/rest/v1/file_refs?expires_at=lt.' + new Date().toISOString(),\n    headers: {\n      'apikey': SUPABASE_KEY,\n      'Authorization': 'Bearer ' + SUPABASE_KEY\n    }\n  });\n} catch(e) {}\n\nreturn [{ json: { bridge_cleaned: bridgeResult.cleaned || 0, db_cleanup: 'done' } }];"
+      }
     }
   ]
 }

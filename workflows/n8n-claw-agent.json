@@ -95,6 +95,11 @@
             "node": "Analyze Photo",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Upload to File Bridge",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -103,7 +108,7 @@
       "main": [
         [
           {
-            "node": "Normalize Message",
+            "node": "Merge File Paths",
             "type": "main",
             "index": 0
           }
@@ -117,6 +122,11 @@
             "node": "Extract PDF Text",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Upload to File Bridge",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -125,7 +135,7 @@
       "main": [
         [
           {
-            "node": "Normalize Message",
+            "node": "Merge File Paths",
             "type": "main",
             "index": 0
           }
@@ -469,7 +479,7 @@
         ],
         [
           {
-            "node": "Split Long Message",
+            "node": "Detect File Send",
             "type": "main",
             "index": 0
           }
@@ -596,6 +606,90 @@
           }
         ]
       ]
+    },
+    "Upload to File Bridge": {
+      "main": [
+        [
+          {
+            "node": "Save File Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect File Send": {
+      "main": [
+        [
+          {
+            "node": "File Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Router": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Split Long Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Send File to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send File to Telegram": {
+      "main": [
+        [
+          {
+            "node": "Split Long Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save File Metadata": {
+      "main": [
+        [
+          {
+            "node": "Merge File Paths",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge File Paths": {
+      "main": [
+        [
+          {
+            "node": "Normalize Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "nodes": [
@@ -629,11 +723,20 @@
             {
               "outputKey": "text",
               "conditions": {
-                "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "loose"
+                },
                 "combinator": "and",
                 "conditions": [
                   {
-                    "operator": { "type": "string", "operation": "exists", "singleValue": true },
+                    "operator": {
+                      "type": "string",
+                      "operation": "exists",
+                      "singleValue": true
+                    },
                     "leftValue": "={{ $json.message.text }}",
                     "rightValue": ""
                   }
@@ -644,11 +747,20 @@
             {
               "outputKey": "voice",
               "conditions": {
-                "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "loose"
+                },
                 "combinator": "and",
                 "conditions": [
                   {
-                    "operator": { "type": "object", "operation": "exists", "singleValue": true },
+                    "operator": {
+                      "type": "object",
+                      "operation": "exists",
+                      "singleValue": true
+                    },
                     "leftValue": "={{ $json.message.voice }}",
                     "rightValue": ""
                   }
@@ -659,11 +771,20 @@
             {
               "outputKey": "photo",
               "conditions": {
-                "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "loose"
+                },
                 "combinator": "and",
                 "conditions": [
                   {
-                    "operator": { "type": "array", "operation": "exists", "singleValue": true },
+                    "operator": {
+                      "type": "array",
+                      "operation": "exists",
+                      "singleValue": true
+                    },
                     "leftValue": "={{ $json.message.photo }}",
                     "rightValue": ""
                   }
@@ -674,11 +795,20 @@
             {
               "outputKey": "document",
               "conditions": {
-                "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "loose"
+                },
                 "combinator": "and",
                 "conditions": [
                   {
-                    "operator": { "type": "object", "operation": "exists", "singleValue": true },
+                    "operator": {
+                      "type": "object",
+                      "operation": "exists",
+                      "singleValue": true
+                    },
                     "leftValue": "={{ $json.message.document }}",
                     "rightValue": ""
                   }
@@ -689,11 +819,20 @@
             {
               "outputKey": "location",
               "conditions": {
-                "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "loose"
+                },
                 "combinator": "and",
                 "conditions": [
                   {
-                    "operator": { "type": "object", "operation": "exists", "singleValue": true },
+                    "operator": {
+                      "type": "object",
+                      "operation": "exists",
+                      "singleValue": true
+                    },
                     "leftValue": "={{ $json.message.location }}",
                     "rightValue": ""
                   }
@@ -782,7 +921,12 @@
       "parameters": {
         "resource": "image",
         "operation": "analyze",
-        "modelId": { "__rl": true, "mode": "list", "value": "gpt-4o-mini", "cachedResultName": "GPT-4O-MINI" },
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "GPT-4O-MINI"
+        },
         "text": "={{ $('Telegram Trigger').first().json.message.caption || 'Describe this image in detail.' }}",
         "inputType": "base64",
         "binaryPropertyName": "data",
@@ -871,7 +1015,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const msg = $('Telegram Trigger').first().json.message;\nconst chatId = String(msg.chat.id);\nconst userId = String(msg.from.id);\nconst source = 'telegram';\nconst sessionId = 'telegram:' + chatId;\nconst qualifiedUserId = 'telegram:' + userId;\n\nfunction out(userMessage) {\n  return [{ json: { userMessage, chatId, userId, sessionId, qualifiedUserId, source } }];\n}\n\n// Determine which media path we came from\nlet userMessage = '';\n\n// Check voice transcription result\ntry {\n  const transcript = $('Transcribe Voice').first()?.json?.text;\n  if (transcript) {\n    return out('[Voice message] ' + transcript);\n  }\n} catch(e) {}\n\n// Check photo (analyzed by OpenAI Vision)\ntry {\n  const analysis = $('Analyze Photo').first();\n  if (analysis) {\n    let description = '';\n    const j = analysis.json;\n    if (Array.isArray(j)) {\n      description = j[0]?.content?.[0]?.text || JSON.stringify(j);\n    } else {\n      description = j.text || j.content || JSON.stringify(j);\n    }\n    const caption = msg.caption || '';\n    userMessage = '[Photo analysis]\\n' + description + (caption ? '\\n\\nUser caption: ' + caption : '');\n    return out(userMessage);\n  }\n} catch(e) {}\n\n// Check document (PDF text extracted by Extract PDF Text node)\ntry {\n  const extracted = $('Extract PDF Text').first();\n  if (extracted) {\n    const filename = msg.document?.file_name || 'unknown';\n    const pdfText = extracted.json.text || '';\n    userMessage = '[Document: ' + filename + ']\\n\\n' + pdfText + '\\n\\n' + (msg.caption || 'Please analyze this document.');\n    return out(userMessage);\n  }\n} catch(e) {}\n\n// Check location\ntry {\n  const locMsg = $('Format Location').first()?.json?.userMessage;\n  if (locMsg) {\n    return out(locMsg);\n  }\n} catch(e) {}\n\n// Check unsupported\ntry {\n  const unsup = $('Unsupported Media').first()?.json?.userMessage;\n  if (unsup) {\n    return out(unsup);\n  }\n} catch(e) {}\n\n// Default: text message\nuserMessage = msg.text || '';\nreturn out(userMessage);"
+        "jsCode": "const msg = $('Telegram Trigger').first().json.message;\nconst chatId = String(msg.chat.id);\nconst userId = String(msg.from.id);\nconst source = 'telegram';\nconst sessionId = 'telegram:' + chatId;\nconst qualifiedUserId = 'telegram:' + userId;\n\nfunction out(userMessage) {\n  return [{ json: { userMessage, chatId, userId, sessionId, qualifiedUserId, source } }];\n}\n\nlet userMessage = '';\n\n// Check voice transcription result\ntry {\n  const transcript = $('Transcribe Voice').first()?.json?.text;\n  if (transcript) {\n    return out('[Voice message] ' + transcript);\n  }\n} catch(e) {}\n\n// Try to get file_ref from File Bridge upload\nlet fileRef = '';\ntry { fileRef = $('Save File Metadata').first()?.json?.file_ref || ''; } catch(e) {}\n\n// Check photo (analyzed by OpenAI Vision)\ntry {\n  const analysis = $('Analyze Photo').first();\n  if (analysis) {\n    let description = '';\n    const j = analysis.json;\n    if (Array.isArray(j)) {\n      description = j[0]?.content?.[0]?.text || JSON.stringify(j);\n    } else {\n      description = j.text || j.content || JSON.stringify(j);\n    }\n    const caption = msg.caption || '';\n    const refTag = fileRef ? ' | file_ref: ' + fileRef : '';\n    userMessage = '[Photo' + refTag + ']\\n' + description + (caption ? '\\n\\nUser caption: ' + caption : '');\n    return out(userMessage);\n  }\n} catch(e) {}\n\n// Check document (PDF text extracted by Extract PDF Text node)\ntry {\n  const extracted = $('Extract PDF Text').first();\n  if (extracted) {\n    const filename = msg.document?.file_name || 'unknown';\n    const pdfText = extracted.json.text || '';\n    const refTag = fileRef ? ' | file_ref: ' + fileRef : '';\n    userMessage = '[Document: ' + filename + refTag + ']\\n\\n' + pdfText + '\\n\\n' + (msg.caption || 'Please analyze this document.');\n    return out(userMessage);\n  }\n} catch(e) {}\n\n// Check location\ntry {\n  const locMsg = $('Format Location').first()?.json?.userMessage;\n  if (locMsg) {\n    return out(locMsg);\n  }\n} catch(e) {}\n\n// Check unsupported\ntry {\n  const unsup = $('Unsupported Media').first()?.json?.userMessage;\n  if (unsup) {\n    return out(unsup);\n  }\n} catch(e) {}\n\n// Default: text message\nuserMessage = msg.text || '';\nreturn out(userMessage);"
       },
       "id": "normalize-message",
       "name": "Normalize Message",
@@ -1178,7 +1322,7 @@
         -16
       ],
       "parameters": {
-        "jsCode": "const text = $('AI Agent').first().json.output || '';\nconst MAX = 4000;\n\nfunction sanitizeTelegramMarkdown(t) {\n  const codeBlockCount = (t.match(/```/g) || []).length;\n  if (codeBlockCount % 2 !== 0) t += '\\n```';\n  const boldCount = (t.match(/\\*\\*/g) || []).length;\n  if (boldCount % 2 !== 0) {\n    const lastIdx = t.lastIndexOf('**');\n    t = t.substring(0, lastIdx) + t.substring(lastIdx + 2);\n  }\n  let singleStarPositions = [];\n  for (let i = 0; i < t.length; i++) {\n    if (t[i] === '*' && (i === 0 || t[i-1] !== '*') && (i === t.length-1 || t[i+1] !== '*')) singleStarPositions.push(i);\n  }\n  if (singleStarPositions.length % 2 !== 0 && singleStarPositions.length > 0) {\n    const removeIdx = singleStarPositions[singleStarPositions.length - 1];\n    t = t.substring(0, removeIdx) + t.substring(removeIdx + 1);\n  }\n  let underscorePositions = [];\n  for (let i = 0; i < t.length; i++) {\n    if (t[i] === '_') {\n      const context = t.substring(Math.max(0, i - 50), i);\n      if (!context.match(/https?:\\/\\/[^\\s]*$/)) underscorePositions.push(i);\n    }\n  }\n  if (underscorePositions.length % 2 !== 0 && underscorePositions.length > 0) {\n    const removeIdx = underscorePositions[underscorePositions.length - 1];\n    t = t.substring(0, removeIdx) + t.substring(removeIdx + 1);\n  }\n  let backtickPositions = [];\n  for (let i = 0; i < t.length; i++) {\n    if (t[i] === '`' && (i === 0 || t[i-1] !== '`') && (i === t.length-1 || t[i+1] !== '`')) backtickPositions.push(i);\n  }\n  if (backtickPositions.length % 2 !== 0 && backtickPositions.length > 0) {\n    const removeIdx = backtickPositions[backtickPositions.length - 1];\n    t = t.substring(0, removeIdx) + t.substring(removeIdx + 1);\n  }\n  return t;\n}\n\nif (text.length <= MAX) {\n  return [{ json: { text: sanitizeTelegramMarkdown(text) } }];\n}\n\nconst chunks = [];\nlet remaining = text;\n\nwhile (remaining.length > MAX) {\n  let cutPoint = remaining.lastIndexOf('\\n\\n', MAX);\n  if (cutPoint < MAX * 0.3) cutPoint = remaining.lastIndexOf('\\n', MAX);\n  if (cutPoint < MAX * 0.3) cutPoint = remaining.lastIndexOf(' ', MAX);\n  if (cutPoint < MAX * 0.3) cutPoint = MAX;\n  chunks.push(remaining.substring(0, cutPoint).trim());\n  remaining = remaining.substring(cutPoint).trim();\n}\nif (remaining) chunks.push(remaining);\n\nreturn chunks.map(c => ({ json: { text: sanitizeTelegramMarkdown(c) } }));"
+        "jsCode": "let text = $('AI Agent').first().json.output || '';\n\n// Strip [send_file: URL] markers (handled by file delivery pipeline)\ntext = text.replace(/\\[send_file:\\s*https?:\\/\\/[^\\]]+\\]/g, '').trim();\n\nconst MAX = 4000;\n\nfunction sanitizeTelegramMarkdown(t) {\n  const codeBlockCount = (t.match(/```/g) || []).length;\n  if (codeBlockCount % 2 !== 0) t += '\\n```';\n  const boldCount = (t.match(/\\*\\*/g) || []).length;\n  if (boldCount % 2 !== 0) {\n    const lastIdx = t.lastIndexOf('**');\n    t = t.substring(0, lastIdx) + t.substring(lastIdx + 2);\n  }\n  let singleStarPositions = [];\n  for (let i = 0; i < t.length; i++) {\n    if (t[i] === '*' && (i === 0 || t[i-1] !== '*') && (i === t.length-1 || t[i+1] !== '*')) singleStarPositions.push(i);\n  }\n  if (singleStarPositions.length % 2 !== 0 && singleStarPositions.length > 0) {\n    const removeIdx = singleStarPositions[singleStarPositions.length - 1];\n    t = t.substring(0, removeIdx) + t.substring(removeIdx + 1);\n  }\n  let underscorePositions = [];\n  for (let i = 0; i < t.length; i++) {\n    if (t[i] === '_') {\n      const context = t.substring(Math.max(0, i - 50), i);\n      if (!context.match(/https?:\\/\\/[^\\s]*$/)) underscorePositions.push(i);\n    }\n  }\n  if (underscorePositions.length % 2 !== 0 && underscorePositions.length > 0) {\n    const removeIdx = underscorePositions[underscorePositions.length - 1];\n    t = t.substring(0, removeIdx) + t.substring(removeIdx + 1);\n  }\n  let backtickPositions = [];\n  for (let i = 0; i < t.length; i++) {\n    if (t[i] === '`' && (i === 0 || t[i-1] !== '`') && (i === t.length-1 || t[i+1] !== '`')) backtickPositions.push(i);\n  }\n  if (backtickPositions.length % 2 !== 0 && backtickPositions.length > 0) {\n    const removeIdx = backtickPositions[backtickPositions.length - 1];\n    t = t.substring(0, removeIdx) + t.substring(removeIdx + 1);\n  }\n  return t;\n}\n\nif (text.length <= MAX) {\n  return [{ json: { text: sanitizeTelegramMarkdown(text) } }];\n}\n\nconst chunks = [];\nlet remaining = text;\n\nwhile (remaining.length > MAX) {\n  let cutPoint = remaining.lastIndexOf('\\n\\n', MAX);\n  if (cutPoint < MAX * 0.3) cutPoint = remaining.lastIndexOf('\\n', MAX);\n  if (cutPoint < MAX * 0.3) cutPoint = remaining.lastIndexOf(' ', MAX);\n  if (cutPoint < MAX * 0.3) cutPoint = MAX;\n  chunks.push(remaining.substring(0, cutPoint).trim());\n  remaining = remaining.substring(cutPoint).trim();\n}\nif (remaining) chunks.push(remaining);\n\nreturn chunks.map(c => ({ json: { text: sanitizeTelegramMarkdown(c) } }));"
       }
     },
     {
@@ -1686,6 +1830,148 @@
         4352,
         -208
       ]
+    },
+    {
+      "id": "upload-to-file-bridge",
+      "name": "Upload to File Bridge",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://file-bridge:3200/upload",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "save-file-metadata",
+      "name": "Save File Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst BRIDGE_URL = 'http://file-bridge:3200';\n\nconst msg = $('Telegram Trigger').first().json.message;\nconst sessionId = 'telegram:' + String(msg.chat.id);\nconst userId = String(msg.from.id);\nconst upload = $input.first().json;\n\nif (!upload || !upload.id) {\n  return [{ json: { file_ref: null } }];\n}\n\nawait helpers.httpRequest({\n  method: 'POST',\n  url: SUPABASE_URL + '/rest/v1/file_refs',\n  headers: {\n    'apikey': SUPABASE_KEY,\n    'Authorization': 'Bearer ' + SUPABASE_KEY,\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({\n    id: upload.id,\n    session_id: sessionId,\n    user_id: userId,\n    file_name: upload.file_name,\n    mime_type: upload.mime_type,\n    size_bytes: upload.size_bytes,\n    bridge_url: BRIDGE_URL + '/files/' + upload.id\n  })\n});\n\nreturn [{ json: { file_ref: upload.id, file_name: upload.file_name } }];"
+      }
+    },
+    {
+      "id": "detect-file-send",
+      "name": "Detect File Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4352,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const output = $('AI Agent').first().json.output || '';\n\n// Detect [send_file: URL] pattern\nconst fileMatch = output.match(/\\[send_file:\\s*(https?:\\/\\/[^\\]]+)\\]/);\n\nlet cleanText = output;\nlet fileUrl = null;\nlet hasFile = false;\n\nif (fileMatch) {\n  fileUrl = fileMatch[1].trim();\n  hasFile = true;\n  // Remove the marker from the text response\n  cleanText = output.replace(fileMatch[0], '').trim();\n}\n\nreturn [{ json: { text: cleanText, fileUrl, hasFile } }];"
+      }
+    },
+    {
+      "id": "file-router",
+      "name": "File Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4576,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasFile }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "download-file",
+      "name": "Download File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4800,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.fileUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "send-file-telegram",
+      "name": "Send File to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        5024,
+        0
+      ],
+      "parameters": {
+        "operation": "sendDocument",
+        "chatId": "={{ $('Build System Prompt').first().json.chatId }}",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "id": "merge-file-paths",
+      "name": "Merge File Paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        760,
+        -16
+      ],
+      "parameters": {
+        "mode": "chooseBranch",
+        "output": "specifiedInput",
+        "useDataOfInput": 1
+      }
     }
   ]
 }
