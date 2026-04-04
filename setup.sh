@@ -326,6 +326,17 @@ else
   echo -e "  ${GREEN}✅ LLM: ${LLM_PROVIDER} / ${LLM_MODEL} (unchanged)${NC}"
 fi
 
+# LLM credential name + type (for workflow node patching + credential patching)
+case "${LLM_PROVIDER:-anthropic}" in
+  anthropic)         LLM_CRED_NAME="Anthropic API";      LLM_CRED_TYPE="anthropicApi" ;;
+  openai)            LLM_CRED_NAME="OpenAI API";         LLM_CRED_TYPE="openAiApi" ;;
+  openrouter)        LLM_CRED_NAME="OpenRouter API";     LLM_CRED_TYPE="openRouterApi" ;;
+  ollama)            LLM_CRED_NAME="Ollama";             LLM_CRED_TYPE="ollamaApi" ;;
+  deepseek)          LLM_CRED_NAME="DeepSeek API";       LLM_CRED_TYPE="deepSeekApi" ;;
+  gemini)            LLM_CRED_NAME="Google Gemini API";  LLM_CRED_TYPE="googlePalmApi" ;;
+  openai_compatible) LLM_CRED_NAME="LLM API";            LLM_CRED_TYPE="openAiApi" ;;
+esac
+
 # OpenAI is optional (for vision + voice) — skip if already set above (OpenAI provider)
 if [ "$LLM_PROVIDER" != "openai" ]; then
   if [ -z "$OPENAI_API_KEY" ] || [[ "$OPENAI_API_KEY" == "your_"* ]]; then
@@ -892,6 +903,55 @@ for wf in data.get('data', []):
       -e "s|{{TELEGRAM_BOT_TOKEN}}|${TELEGRAM_BOT_TOKEN}|g" \
       "$out"
 
+    # LLM node patch — replace lmChatAnthropic nodes with chosen provider
+    if [ "${LLM_PROVIDER:-anthropic}" != "anthropic" ]; then
+      python3 -c "
+import json, sys
+f = sys.argv[1]
+provider = sys.argv[2]
+model = sys.argv[3]
+cred_name = sys.argv[4]
+base_url = sys.argv[5] if len(sys.argv) > 5 else ''
+with open(f) as fh:
+    wf = json.load(fh)
+PROVIDERS = {
+    'openai': {'type': '@n8n/n8n-nodes-langchain.lmChatOpenAi', 'ver': 1.3, 'cred': 'openAiApi', 'model_key': 'model', 'tokens_key': 'maxTokens', 'use_rl': True},
+    'openrouter': {'type': '@n8n/n8n-nodes-langchain.lmChatOpenRouter', 'ver': 1, 'cred': 'openRouterApi', 'model_key': 'model', 'tokens_key': 'maxTokens', 'use_rl': False},
+    'ollama': {'type': '@n8n/n8n-nodes-langchain.lmChatOllama', 'ver': 1, 'cred': 'ollamaApi', 'model_key': 'model', 'tokens_key': 'numPredict', 'use_rl': False},
+    'deepseek': {'type': '@n8n/n8n-nodes-langchain.lmChatDeepSeek', 'ver': 1, 'cred': 'deepSeekApi', 'model_key': 'model', 'tokens_key': 'maxTokens', 'use_rl': False},
+    'gemini': {'type': '@n8n/n8n-nodes-langchain.lmChatGoogleGemini', 'ver': 1, 'cred': 'googlePalmApi', 'model_key': 'modelName', 'tokens_key': 'maxOutputTokens', 'use_rl': False},
+    'openai_compatible': {'type': '@n8n/n8n-nodes-langchain.lmChatOpenAi', 'ver': 1.3, 'cred': 'openAiApi', 'model_key': 'model', 'tokens_key': 'maxTokens', 'use_rl': True},
+}
+if provider not in PROVIDERS:
+    sys.exit(0)
+cfg = PROVIDERS[provider]
+changed = False
+for node in wf.get('nodes', []):
+    if node.get('type') != '@n8n/n8n-nodes-langchain.lmChatAnthropic':
+        continue
+    old_opts = node.get('parameters', {}).get('options', {})
+    temp = old_opts.get('temperature')
+    tokens = old_opts.get('maxTokensToSample')
+    node['type'] = cfg['type']
+    node['typeVersion'] = cfg['ver']
+    model_val = {'__rl': True, 'value': model, 'mode': 'id'} if cfg['use_rl'] else model
+    params = {cfg['model_key']: model_val}
+    if provider in ('openai', 'openai_compatible'):
+        params['responsesApiEnabled'] = False
+    opts = {}
+    if tokens is not None: opts[cfg['tokens_key']] = tokens
+    if temp is not None: opts['temperature'] = temp
+    if base_url and provider == 'openai_compatible': opts['baseURL'] = base_url
+    if opts: params['options'] = opts
+    node['parameters'] = params
+    node['credentials'] = {cfg['cred']: {'id': 'REPLACE_WITH_YOUR_CREDENTIAL_ID', 'name': cred_name}}
+    changed = True
+if changed:
+    with open(f, 'w') as fh:
+        json.dump(wf, fh, indent=2, ensure_ascii=False)
+" "$out" "${LLM_PROVIDER}" "${LLM_MODEL}" "${LLM_CRED_NAME}" "${LLM_BASE_URL:-}"
+    fi
+
     # Patch credential IDs
     python3 -c "
 import json, sys
@@ -908,6 +968,10 @@ if sys.argv[5] and sys.argv[5] not in ('',):
 if len(sys.argv) > 6 and sys.argv[6] and sys.argv[6] not in ('', 'REPLACE_WITH_YOUR_CREDENTIAL_ID'):
     mapping['httpHeaderAuth'] = sys.argv[6]
 slack_id = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else ''
+llm_cred_id = sys.argv[8] if len(sys.argv) > 8 and sys.argv[8] else ''
+llm_cred_type = sys.argv[9] if len(sys.argv) > 9 and sys.argv[9] else ''
+if llm_cred_id and llm_cred_type:
+    mapping[llm_cred_type] = llm_cred_id
 with open(f) as fh:
     wf = json.load(fh)
 for node in wf.get('nodes', []):
@@ -922,7 +986,7 @@ for node in wf.get('nodes', []):
                 node.pop('disabled', None)
 with open(f, 'w') as fh:
     json.dump(wf, fh, indent=2, ensure_ascii=False)
-" "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}"
+" "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}" "${LLM_CRED_ID:-}" "${LLM_CRED_TYPE:-}"
 
     resp=$(curl -s -X POST "${N8N_BASE}/api/v1/workflows" \
       -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
@@ -957,6 +1021,105 @@ for f in workflows/*.json workflows/adapters/*.json; do
     -e "s|{{PAPERCLIP_AGENT_KEY}}|${PAPERCLIP_AGENT_KEY}|g" \
     -e "s|{{TELEGRAM_BOT_TOKEN}}|${TELEGRAM_BOT_TOKEN}|g" \
     "$out"
+  # LLM node patch — replace lmChatAnthropic nodes with chosen provider
+  if [ "${LLM_PROVIDER:-anthropic}" != "anthropic" ]; then
+    python3 -c "
+import json, sys
+f = sys.argv[1]
+provider = sys.argv[2]
+model = sys.argv[3]
+cred_name = sys.argv[4]
+base_url = sys.argv[5] if len(sys.argv) > 5 else ''
+with open(f) as fh:
+    wf = json.load(fh)
+PROVIDERS = {
+    'openai': {
+        'type': '@n8n/n8n-nodes-langchain.lmChatOpenAi',
+        'ver': 1.3,
+        'cred': 'openAiApi',
+        'model_key': 'model',
+        'tokens_key': 'maxTokens',
+        'use_rl': True,
+    },
+    'openrouter': {
+        'type': '@n8n/n8n-nodes-langchain.lmChatOpenRouter',
+        'ver': 1,
+        'cred': 'openRouterApi',
+        'model_key': 'model',
+        'tokens_key': 'maxTokens',
+        'use_rl': False,
+    },
+    'ollama': {
+        'type': '@n8n/n8n-nodes-langchain.lmChatOllama',
+        'ver': 1,
+        'cred': 'ollamaApi',
+        'model_key': 'model',
+        'tokens_key': 'numPredict',
+        'use_rl': False,
+    },
+    'deepseek': {
+        'type': '@n8n/n8n-nodes-langchain.lmChatDeepSeek',
+        'ver': 1,
+        'cred': 'deepSeekApi',
+        'model_key': 'model',
+        'tokens_key': 'maxTokens',
+        'use_rl': False,
+    },
+    'gemini': {
+        'type': '@n8n/n8n-nodes-langchain.lmChatGoogleGemini',
+        'ver': 1,
+        'cred': 'googlePalmApi',
+        'model_key': 'modelName',
+        'tokens_key': 'maxOutputTokens',
+        'use_rl': False,
+    },
+    'openai_compatible': {
+        'type': '@n8n/n8n-nodes-langchain.lmChatOpenAi',
+        'ver': 1.3,
+        'cred': 'openAiApi',
+        'model_key': 'model',
+        'tokens_key': 'maxTokens',
+        'use_rl': True,
+    },
+}
+if provider not in PROVIDERS:
+    sys.exit(0)
+cfg = PROVIDERS[provider]
+changed = False
+for node in wf.get('nodes', []):
+    if node.get('type') != '@n8n/n8n-nodes-langchain.lmChatAnthropic':
+        continue
+    old_opts = node.get('parameters', {}).get('options', {})
+    temp = old_opts.get('temperature')
+    tokens = old_opts.get('maxTokensToSample')
+    node['type'] = cfg['type']
+    node['typeVersion'] = cfg['ver']
+    # Build model value
+    if cfg['use_rl']:
+        model_val = {'__rl': True, 'value': model, 'mode': 'id'}
+    else:
+        model_val = model
+    # Build parameters
+    params = {cfg['model_key']: model_val}
+    if provider in ('openai', 'openai_compatible'):
+        params['responsesApiEnabled'] = False
+    opts = {}
+    if tokens is not None:
+        opts[cfg['tokens_key']] = tokens
+    if temp is not None:
+        opts['temperature'] = temp
+    if base_url and provider in ('openai_compatible',):
+        opts['baseURL'] = base_url
+    if opts:
+        params['options'] = opts
+    node['parameters'] = params
+    node['credentials'] = {cfg['cred']: {'id': 'REPLACE_WITH_YOUR_CREDENTIAL_ID', 'name': cred_name}}
+    changed = True
+if changed:
+    with open(f, 'w') as fh:
+        json.dump(wf, fh, indent=2, ensure_ascii=False)
+" "$out" "${LLM_PROVIDER}" "${LLM_MODEL}" "${LLM_CRED_NAME}" "${LLM_BASE_URL:-}"
+  fi
   # Credential ID replacements — proper JSON manipulation (sed can't match
   # across line breaks, and "id"/"name" are on separate lines in the JSON)
   python3 -c "
@@ -974,6 +1137,10 @@ if sys.argv[5] and sys.argv[5] not in ('',):
 if len(sys.argv) > 6 and sys.argv[6] and sys.argv[6] not in ('', 'REPLACE_WITH_YOUR_CREDENTIAL_ID'):
     mapping['httpHeaderAuth'] = sys.argv[6]
 slack_id = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else ''
+llm_cred_id = sys.argv[8] if len(sys.argv) > 8 and sys.argv[8] else ''
+llm_cred_type = sys.argv[9] if len(sys.argv) > 9 and sys.argv[9] else ''
+if llm_cred_id and llm_cred_type:
+    mapping[llm_cred_type] = llm_cred_id
 with open(f) as fh:
     wf = json.load(fh)
 for node in wf.get('nodes', []):
@@ -988,7 +1155,7 @@ for node in wf.get('nodes', []):
                 node.pop('disabled', None)
 with open(f, 'w') as fh:
     json.dump(wf, fh, indent=2, ensure_ascii=False)
-" "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}"
+" "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}" "${LLM_CRED_ID:-}" "${LLM_CRED_TYPE:-}"
 done
 IMPORT_ORDER="mcp-client reminder-factory reminder-runner mcp-weather-example workflow-builder mcp-builder mcp-library-manager agent-library-manager sub-agent-runner credential-form oauth-callback memory-consolidation background-checker heartbeat webhook-adapter n8n-claw-agent"
 
@@ -2139,19 +2306,7 @@ echo "       Name: 'Anthropic API'  |  Key: your key"
 else
 echo ""
 echo -e "  ${GREEN}🤖 LLM Provider: ${LLM_PROVIDER} (${LLM_MODEL})${NC}"
-echo "    Your ${LLM_PROVIDER} credential has been created."
-echo "    The agent workflows ship with Anthropic Chat Model nodes."
-echo "    To use your provider, swap the LLM node in these workflows:"
-echo ""
-echo "      • n8n-claw Agent       → replace 'Claude' node"
-echo "      • Sub-Agent Runner     → replace 'Claude' node"
-echo "      • Background Checker   → replace 'Claude' node"
-echo "      • MCP Builder          → replace 'Anthropic Chat Model' (2 nodes)"
-echo ""
-echo "    Steps: Open workflow → Delete the Anthropic node → Add your"
-echo "           provider's Chat Model → Connect to AI Agent → Select credential"
-echo ""
-echo "    Memory Consolidation works automatically with your provider. ✅"
+echo "    All workflows configured for ${LLM_PROVIDER}. No manual LLM setup needed. ✅"
 echo ""
 fi
 echo "    4. Activate ALL workflows in n8n UI (Workflows → toggle each one on):"
@@ -2164,7 +2319,7 @@ echo "       → ⚙️  WorkflowBuilder     (ID: ${WF_IDS['workflow-builder']})
 echo ""
 echo -e "  ${YELLOW}⚠️  MCP Builder extra step:${NC}"
 echo "     Open MCP Builder workflow → click the LLM node"
-echo "     → select 'Anthropic API' as the chat model"
+echo "     → select '${LLM_CRED_NAME:-Anthropic API}' as the chat model"
 echo "     (not set by default due to n8n credential linking)"
 echo ""
 echo "    5. Message your Telegram bot!"
