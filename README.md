@@ -124,45 +124,19 @@ Internal Services:
 git clone https://github.com/freddy-schuetz/n8n-claw.git && cd n8n-claw && ./setup.sh
 ```
 
-The script will:
+The script installs everything automatically. It will ask you for:
 
-1. **Update the system** (`apt update && apt upgrade`)
-2. **Install Docker** automatically if not present
-3. **Start n8n** so you can generate an API key
-4. **Ask you for configuration** interactively:
-   - n8n API Key *(generated in n8n UI → Settings → API)*
-   - Telegram Bot Token
-   - Telegram Chat ID
-   - LLM API Key *(choose your provider: Anthropic, OpenAI, OpenRouter, DeepSeek, Gemini, Mistral, Ollama, or OpenAI-compatible)*
-   - Domain name *(optional — enables HTTPS via Let's Encrypt + nginx, or skip nginx if you already have a reverse proxy)*
-5. **Configure your agent's personality**:
-   - Agent name
-   - Your name
-   - Preferred language
-   - Timezone *(auto-detected from system)*
-   - Communication style (casual / professional / friendly)
-   - Proactive vs reactive behavior
-   - Free-text custom persona *(overrides the above)*
-6. **Start all services** (n8n, PostgreSQL, PostgREST, Kong, Supabase Studio, SearXNG, Crawl4AI, Email Bridge, File Bridge)
-7. **Apply database schema** and seed data
-8. **Create n8n credentials** (Telegram, LLM provider, Webhook Auth — all automatic)
-9. **Import all workflows** into n8n
-10. **Wire workflow references** (MCP Builder, Reminders, etc.)
-11. **Activate the agent** automatically
+- **n8n API Key** — generated in the n8n UI that opens during setup *(Settings → API)*
+- **Telegram Bot Token** + **Chat ID**
+- **LLM API Key** — choose your provider (Anthropic, OpenAI, OpenRouter, DeepSeek, Gemini, Mistral, Ollama, or OpenAI-compatible)
+- **Domain name** *(optional — enables HTTPS via Let's Encrypt)*
+- **Agent personality** — name, language, communication style, custom persona
 
-**Optional: Embeddings for semantic memory search:**
+After that, setup handles everything else: Docker, database, credentials, workflows, activation.
 
-During setup, you'll be asked for an embedding API key. This enables vector-based memory search (RAG) — the agent can find memories by meaning, not just exact keywords.
-
-- **OpenAI** (default): `text-embedding-3-small` — [platform.openai.com](https://platform.openai.com) (requires API key)
-- **Voyage AI**: `voyage-3-lite` — [voyageai.com](https://www.voyageai.com) (free tier available)
-- **Ollama**: `nomic-embed-text` — local, no API key needed (requires Ollama running on your server)
-
-Without an embedding key, the agent still works — it falls back to keyword-based memory search.
-
-**Optional: OpenAI API Key for voice messages:**
-
-If you chose OpenAI as your embedding provider, the same key is automatically used for voice transcription (Whisper) — no extra input needed. If you use a different embedding provider (or none), setup will ask separately for an OpenAI key. Without it, voice messages won't work — but photos, documents, and locations work without any extra keys.
+Setup also asks about two optional features (you can skip both):
+- **Embeddings** — enables semantic memory search (find memories by meaning, not just keywords). Supports OpenAI, Voyage AI, or Ollama. Without it, memory still works via keyword search.
+- **Voice messages** — requires an OpenAI API key for Whisper transcription. If you already chose OpenAI for embeddings, the same key is reused. Without it, voice messages won't work — but photos, documents, and locations work fine.
 
 ### Step 2 — Start chatting
 
@@ -181,38 +155,15 @@ curl -X POST https://YOUR-DOMAIN/webhook/agent \
 
 The `WEBHOOK_SECRET` is shown at the end of setup output (also in `.env`).
 
-### Step 3 — Activate remaining workflows
+### Step 3 — Optional: activate extra workflows
 
-These workflows are **activated automatically** by setup — no action needed:
-
-| Workflow | Purpose |
-|---|---|
-| n8n-claw Agent | Main agent — receives Telegram + Webhook messages, calls tools |
-| Heartbeat | Background: recurring actions + proactive reminders (every 5 min) |
-| Background Checker | Sub-workflow: silent background checks, only notifies on changes |
-| Memory Consolidation | Background: summarizes conversations into long-term memory (daily 3am) |
-| Reminder Runner | Background: delivers reminders + triggers one-time actions (every 1 min) |
-
-These workflows need to be **activated manually** in n8n UI:
+The core agent and all background workflows are activated automatically. These optional workflows can be activated manually in the n8n UI if you need them:
 
 | Workflow | Purpose |
 |---|---|
 | MCP Builder | Builds custom MCP skills on demand |
-| MCP: Weather | Example MCP Server — weather via Open-Meteo (no API key) |
-| WorkflowBuilder | Builds general n8n automations *(optional — requires [extra setup](#optional-workflowbuilder-with-claude-code))* |
-
-Sub-workflows (called by other workflows, no manual activation needed):
-
-| Workflow | Called by |
-|---|---|
-| MCP Client | Agent — calls tools on MCP skill servers |
-| MCP Library Manager | Agent — installs/removes skills from catalog |
-| Sub-Agent Runner | Agent — runs expert agents with loaded personas |
-| Agent Library Manager | Agent — installs/removes expert agents |
-| ReminderFactory | Agent — creates, lists, edits, and deletes reminders/tasks |
-| credential-form | Library Manager — secure form for entering API keys |
-| OAuth Callback | Google Skills — handles OAuth2 authorization redirect |
-| Webhook Adapter | Connects Slack, Teams, and custom apps to the agent (imported inactive) |
+| MCP: Weather | Example skill — weather via Open-Meteo (no API key needed) |
+| WorkflowBuilder | Builds general n8n automations *(requires [extra setup](#optional-workflowbuilder-with-claude-code))* |
 
 ### Secure your Telegram bot
 
