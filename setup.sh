@@ -1530,7 +1530,15 @@ fi
 
 fi  # end INSTALL_MODE guard for workflows
 
-# ── 12. Activate agent ───────────────────────────────────────
+# ── 12. Restart n8n to ensure clean webhook state after all imports/patches ──
+docker compose restart n8n > /dev/null 2>&1
+echo -e "  ${CYAN}⏳ Restarting n8n for webhook registration...${NC}"
+for i in $(seq 1 30); do
+  curl -s "${N8N_BASE}/healthz" > /dev/null 2>&1 && break
+  sleep 2
+done
+
+# ── 13. Activate agent ───────────────────────────────────────
 AGENT_ID=${WF_IDS['n8n-claw-agent']}
 if [ -n "$AGENT_ID" ]; then
   # Deactivate first (forces n8n to re-register Telegram webhook on activate)
