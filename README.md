@@ -168,7 +168,9 @@ If you chose OpenAI as your embedding provider, the same key is automatically us
 
 All credentials are created and connected automatically by setup. Send a message to your Telegram bot — it's ready!
 
-You can also test the webhook API:
+---
+
+**Webhook API** — you can also interact with the agent via HTTP (for Slack, Teams, or custom apps):
 
 ```bash
 curl -X POST https://YOUR-DOMAIN/webhook/agent \
