@@ -1603,6 +1603,17 @@ if [ -n "$HEARTBEAT_ID" ]; then
   echo -e "  ${GREEN}✅ Heartbeat workflow activated${NC}"
 fi
 
+# Final deactivate/activate cycle for agent — forces Telegram webhook re-registration
+# (n8n sometimes skips webhook registration on first activate after API import)
+if [ -n "$AGENT_ID" ]; then
+  curl -s -X POST "${N8N_BASE}/api/v1/workflows/${AGENT_ID}/deactivate" \
+    -H "X-N8N-API-KEY: ${N8N_API_KEY}" > /dev/null 2>&1
+  sleep 3
+  curl -s -X POST "${N8N_BASE}/api/v1/workflows/${AGENT_ID}/activate" \
+    -H "X-N8N-API-KEY: ${N8N_API_KEY}" > /dev/null 2>&1
+  echo -e "  ${GREEN}✅ Telegram webhook re-registered${NC}"
+fi
+
 # Helper for interactive prompts (used by both update and fresh install)
 cli_ask() {
   local prompt="$1" default="$2"
