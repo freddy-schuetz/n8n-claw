@@ -272,7 +272,7 @@ if [ "$SKIP_LLM" = "false" ]; then
       if [ -z "$LLM_API_KEY" ] || [[ "$LLM_API_KEY" == "your_"* ]]; then
         ask "LLM_API_KEY" "OpenAI API Key (from platform.openai.com)" "" 1
       fi
-      LLM_MODEL="${LLM_MODEL:-gpt-5.4-mini}"
+      LLM_MODEL="${LLM_MODEL:-gpt-5.4}"
       # Reuse as OPENAI_API_KEY for vision/transcription too
       OPENAI_API_KEY="$LLM_API_KEY"
       set_env OPENAI_API_KEY "$OPENAI_API_KEY"
@@ -1628,7 +1628,7 @@ if [ "$INSTALL_MODE" = "update" ] && [ "$FORCE_FLAG" != "--force" ] && [ -z "${E
   LLM_PROVIDER_DB="${LLM_PROVIDER:-anthropic}"
   case "$LLM_PROVIDER_DB" in
     anthropic)        LLM_ENDPOINT="https://api.anthropic.com/v1/messages"; LLM_PROVIDER_FAMILY="anthropic"; LLM_DB_KEY="${ANTHROPIC_API_KEY}"; LLM_DB_MODEL="${LLM_MODEL:-claude-haiku-4-5-20251001}" ;;
-    openai)           LLM_ENDPOINT="https://api.openai.com/v1/chat/completions"; LLM_PROVIDER_FAMILY="openai_compatible"; LLM_DB_KEY="${LLM_API_KEY}"; LLM_DB_MODEL="${LLM_MODEL:-gpt-5.4-mini}" ;;
+    openai)           LLM_ENDPOINT="https://api.openai.com/v1/chat/completions"; LLM_PROVIDER_FAMILY="openai_compatible"; LLM_DB_KEY="${LLM_API_KEY}"; LLM_DB_MODEL="${LLM_MODEL:-gpt-5.4}" ;;
     openrouter)       LLM_ENDPOINT="https://openrouter.ai/api/v1/chat/completions"; LLM_PROVIDER_FAMILY="openai_compatible"; LLM_DB_KEY="${LLM_API_KEY}"; LLM_DB_MODEL="${LLM_MODEL}" ;;
     ollama)           LLM_ENDPOINT="${LLM_BASE_URL:-http://172.17.0.1:11434}/v1/chat/completions"; LLM_PROVIDER_FAMILY="openai_compatible"; LLM_DB_KEY="${LLM_API_KEY:-ollama}"; LLM_DB_MODEL="${LLM_MODEL:-llama3.2}" ;;
     deepseek)         LLM_ENDPOINT="https://api.deepseek.com/v1/chat/completions"; LLM_PROVIDER_FAMILY="openai_compatible"; LLM_DB_KEY="${LLM_API_KEY}"; LLM_DB_MODEL="${LLM_MODEL:-deepseek-chat}" ;;
@@ -1853,7 +1853,7 @@ case "$LLM_PROVIDER_DB" in
     LLM_ENDPOINT="https://api.openai.com/v1/chat/completions"
     LLM_PROVIDER_FAMILY="openai_compatible"
     LLM_DB_KEY="${LLM_API_KEY}"
-    LLM_DB_MODEL="${LLM_MODEL:-gpt-5.4-mini}"
+    LLM_DB_MODEL="${LLM_MODEL:-gpt-5.4}"
     ;;
   openrouter)
     LLM_ENDPOINT="https://openrouter.ai/api/v1/chat/completions"
