@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/10b7b93d-f482-47c1-a144-80a1b9d1be16
 - [Architecture](#architecture)
 - [Installation](#installation)
 - [Services & URLs](#services--urls)
-- [Connect Claude Code, Claude Desktop & Cursor](#connect-claude-code-claude-desktop--cursor)
+- [Connect Claude Desktop, ChatGPT, Claude Code, Lovable & Cursor](#connect-claude-desktop-chatgpt-claude-code-lovable--cursor)
 - [Webhook API & External Integrations](#webhook-api--external-integrations)
 - [MCP Skills Library](#mcp-skills-library)
 - [Google Services (OAuth2)](#google-services-oauth2)
@@ -220,11 +220,11 @@ Then open `http://localhost:3001` in your browser. The tunnel stays open as long
 <details>
 <summary>
 
-## Connect Claude Code, Claude Desktop & Cursor
+## Connect Claude Desktop, ChatGPT, Claude Code, Lovable & Cursor
 
 </summary>
 
-n8n-claw can be used directly from Claude Code, Claude Desktop, Cursor, and other MCP-compatible tools — using n8n's built-in Instance-Level MCP Server. No extra workflows or code needed.
+n8n-claw can be used directly from Claude Desktop, ChatGPT, Claude Code, Lovable, Cursor, and other MCP-compatible tools — using n8n's built-in Instance-Level MCP Server. No extra workflows or code needed.
 
 Once connected, your MCP client can chat with the agent (with full access to memory, web search, skills, reminders, and Telegram), trigger other workflows, and even create new ones.
 
@@ -232,22 +232,39 @@ Once connected, your MCP client can chat with the agent (with full access to mem
 
 **1. Enable Instance-Level MCP in n8n**
 
-Navigate to **Settings > Instance-level MCP** and toggle **Enable MCP access** (requires admin).
+Navigate to **Settings** (gear icon) **> Instance-level MCP** and toggle **Enable MCP access**.
 
 **2. Expose the agent workflow**
 
-Open the **n8n-claw Agent** workflow > click the menu (**...**) > **Settings** > toggle **Available in MCP**.
+Click **Enable workflows**, select the **n8n-claw Agent** workflow, then click **Enable**. Add a good description to help MCP clients understand what the workflow does.
 
-Optionally add a description to help MCP clients find the workflow (menu > **Edit description**).
-
-**3. Generate an Access Token**
-
-On the Instance-level MCP page, click **Connection details** > **Access Token** tab. Copy your token immediately — it will be masked on future visits.
-
-**4. Connect your MCP client**
+**3. Connect your MCP client**
 
 <details>
-<summary>Claude Code</summary>
+<summary>Claude Desktop (easiest — OAuth, no token needed)</summary>
+
+1. On the Instance-level MCP page, click **Connection details** and copy the **OAuth URL**
+2. In Claude Desktop, go to **File > Settings > Connectors** > **Add custom connector**
+3. Enter a name (e.g. your agent's name) and paste the OAuth URL, then click **Add**
+4. In the connectors overview, click **Connect** and authorize in the browser window that opens
+
+That's it — Claude Desktop can now discover and use your agent.
+
+</details>
+
+<details>
+<summary>ChatGPT (OAuth)</summary>
+
+1. In ChatGPT, go to **Settings > Apps > Advanced settings** and enable **Developer mode**
+2. Go back and click **Create new app**
+3. Enter a name (e.g. your agent's name), paste your n8n MCP URL `https://<your-n8n-domain>/mcp-server/http`, select **OAuth**, accept the risk warning, and click **Create**
+
+</details>
+
+<details>
+<summary>Claude Code (Access Token)</summary>
+
+On the Instance-level MCP page, click **Connection details** > **Access Token** tab. Copy your token immediately — it will be masked on future visits.
 
 ```bash
 claude mcp add --transport http n8n-claw https://<your-n8n-domain>/mcp-server/http \
@@ -273,32 +290,18 @@ Or add to your `.mcp.json`:
 </details>
 
 <details>
-<summary>Claude Desktop</summary>
+<summary>Lovable (OAuth)</summary>
 
-**Option A — OAuth2:** Go to **Settings > Connectors** > **Add custom connector**. Enter your n8n base URL as the Remote MCP Server URL. Authorize when prompted.
-
-**Option B — Access Token:** Add to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "n8n-claw": {
-      "type": "http",
-      "url": "https://<your-n8n-domain>/mcp-server/http",
-      "headers": {
-        "Authorization": "Bearer <YOUR_TOKEN>"
-      }
-    }
-  }
-}
-```
+1. In Lovable, go to **Settings > Connectors > Personal connectors** and click **New MCP server**
+2. Enter a name (e.g. your agent's name), paste your n8n MCP URL `https://<your-n8n-domain>/mcp-server/http`, and select **OAuth** as authentication
+3. Click **Add & authorize** and confirm in the browser
 
 </details>
 
 <details>
 <summary>Cursor / Other MCP clients</summary>
 
-Use the HTTP endpoint `https://<your-n8n-domain>/mcp-server/http` with a Bearer token header. Refer to your client's MCP documentation for the exact configuration format.
+Use the **OAuth URL** from Connection details if your client supports OAuth, or the **Access Token** with the HTTP endpoint `https://<your-n8n-domain>/mcp-server/http`. Refer to your client's MCP documentation for the exact configuration format.
 
 </details>
 
