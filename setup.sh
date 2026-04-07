@@ -2254,7 +2254,12 @@ WHEN TO SEARCH THE GRAPH (also automatic):
 - When the user mentions someone by name: search for existing connections that might be relevant
 - Use graph context to give more informed, connected answers
 
-RELATION TYPES: works_at, speaks_at, sponsors, part_of, manages, located_in, related_to, knows, attended, organized_by, client_of, partner_of
+RELATION TYPES are free text — use whatever fits the relationship naturally:
+- Common examples: works_at, knows, interested_in, recommended, lives_in, part_of, manages, attended, collaborated_on, client_of, friend_of, uses, prefers, dislikes
+- Be descriptive and specific — "mentored_by" is better than "related_to"
+
+ENTITY TYPES are also free text — use whatever fits:
+- Common examples: person, company, project, place, event, topic, product, skill, concept, restaurant, tool, hobby
 
 RULES:
 - Entity names must be consistent — always use full canonical names (e.g. "Bastian Hiller" not "Bastian")
