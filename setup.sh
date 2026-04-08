@@ -1725,6 +1725,8 @@ EXISTING_LANG=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost 
   "SELECT preferences->>'language' FROM user_profiles WHERE user_id = 'telegram:${TELEGRAM_CHAT_ID}' LIMIT 1" 2>/dev/null | xargs)
 EXISTING_PERSONA=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres -t -c \
   "SELECT content FROM soul WHERE key='persona' LIMIT 1" 2>/dev/null | sed 's/^ *//;s/ *$//')
+EXISTING_PROACTIVE=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres -t -c \
+  "SELECT content FROM soul WHERE key='proactive' LIMIT 1" 2>/dev/null | sed 's/^ *//;s/ *$//')
 
 SKIP_PERSONALITY=false
 SKIP_EMBEDDING=false
@@ -1800,28 +1802,47 @@ esac
 
 echo ""
 echo "  Proactive behavior:"
+if [ -n "$EXISTING_PROACTIVE" ]; then
+  echo "    Current: ${EXISTING_PROACTIVE:0:70}..."
+fi
 echo "    1) Proactive — reminds you of things, checks in, suggests next steps"
 echo "    2) Reactive — only responds when you message first"
-read -rp "  Choose [1]: " PROACTIVE_CHOICE
-PROACTIVE_CHOICE="${PROACTIVE_CHOICE:-1}"
-case "$PROACTIVE_CHOICE" in
-  2) PROACTIVE="Only respond when the user initiates. Do not proactively reach out." ;;
-  *) PROACTIVE="Be proactive: remind the user of upcoming events, suggest next steps, follow up on open tasks." ;;
-esac
+if [ -n "$EXISTING_PROACTIVE" ]; then
+  read -rp "  Choose [keep current]: " PROACTIVE_CHOICE
+else
+  read -rp "  Choose [1]: " PROACTIVE_CHOICE
+fi
+if [ -z "$PROACTIVE_CHOICE" ] && [ -n "$EXISTING_PROACTIVE" ]; then
+  PROACTIVE="$EXISTING_PROACTIVE"
+else
+  case "${PROACTIVE_CHOICE:-1}" in
+    2) PROACTIVE="Only respond when the user initiates. Do not proactively reach out." ;;
+    *) PROACTIVE="Be proactive: remind the user of upcoming events, suggest next steps, follow up on open tasks." ;;
+  esac
+fi
 
 echo ""
 echo "  Custom personality (optional — overrides the above):"
 echo "  Describe exactly how the agent should behave, in your own words."
-echo "  Leave empty to use the settings above."
-# Show existing custom persona if it differs from the standard pattern
+
+# Determine if there's an existing custom persona (differs from standard pattern)
 EXISTING_CUSTOM_PERSONA=""
 if [ -n "$EXISTING_PERSONA" ] && [[ "$EXISTING_PERSONA" != *"a helpful AI assistant"* ]]; then
   EXISTING_CUSTOM_PERSONA="$EXISTING_PERSONA"
+fi
+
+if [ -n "$EXISTING_CUSTOM_PERSONA" ]; then
   echo -e "  Current: ${EXISTING_CUSTOM_PERSONA:0:80}..."
+  echo "  Press Enter to keep, type new text to replace, or type 'reset' to switch to preset above."
+else
+  echo "  Leave empty to use the settings above."
 fi
 read -rp "  Custom persona [${EXISTING_CUSTOM_PERSONA:+keep current}]: " CUSTOM_PERSONA
 USE_FULL_PERSONA=""
-if [ -z "$CUSTOM_PERSONA" ] && [ -n "$EXISTING_CUSTOM_PERSONA" ]; then
+if [ "$CUSTOM_PERSONA" = "reset" ] && [ -n "$EXISTING_CUSTOM_PERSONA" ]; then
+  # User explicitly wants to drop the custom persona and use the preset from the Style menu above
+  echo -e "  ${GREEN}✅ Resetting to preset persona${NC}"
+elif [ -z "$CUSTOM_PERSONA" ] && [ -n "$EXISTING_CUSTOM_PERSONA" ]; then
   # Keep existing custom persona as-is (it's the full persona string from DB)
   USE_FULL_PERSONA="$EXISTING_CUSTOM_PERSONA"
   echo -e "  ${GREEN}✅ Keeping current custom persona${NC}"
