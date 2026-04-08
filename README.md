@@ -478,7 +478,7 @@ The `_responseChannel` value in metadata tells the adapter where to route the ag
 
 </summary>
 
-**40 pre-built skills** available from the [skill catalog](https://github.com/freddy-schuetz/n8n-claw-templates) — install with a single chat command, no coding required.
+**43 pre-built skills** available from the [skill catalog](https://github.com/freddy-schuetz/n8n-claw-templates) — install with a single chat command, no coding required.
 
 > "What skills are available?"
 > "Install weather-openmeteo"
@@ -502,6 +502,7 @@ The Library Manager fetches skill templates from GitHub, imports the workflows i
 | Reference | Country Info, Public Holidays, Timezone / World Clock |
 | Utilities | PDF Tools, QR Code |
 | Entertainment | TMDB Movies, Recipes, Trivia |
+| Creativity | Google Media Generation (Nano Banana Pro, Veo 3.1) |
 
 See the full catalog at [n8n-claw-templates](https://github.com/freddy-schuetz/n8n-claw-templates).
 
