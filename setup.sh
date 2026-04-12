@@ -2342,10 +2342,10 @@ CONSISTENCY:
 A global Error Notification workflow catches failures in the main agent, background-checker, and sub-agent-runner. Every failure is logged to memory_long with:
 - category = ''error''
 - importance = 8
-- tags = [''error'', ''workflow-failure'', <workflow_name>]
+- tags include ''error'', ''workflow-failure'', and the workflow name
 - entity_name = ''workflow:<workflow_name>''
 - content = human-readable summary (workflow name, timestamp, error message, failing node, execution URL)
-- metadata (jsonb) = { execution_id, execution_url, execution_mode, workflow_id, workflow_name, node_name, error_name, error_message, error_stack }
+- metadata (jsonb) contains execution_id, execution_url, execution_mode, workflow_id, workflow_name, node_name, error_name, error_message and a truncated error_stack
 
 WHEN TO CHECK PROACTIVELY:
 - User asks "ist was schiefgelaufen?", "lief alles?", "hat X funktioniert?", "did anything fail?", "any errors today?"
@@ -2354,16 +2354,13 @@ WHEN TO CHECK PROACTIVELY:
 - Before apologizing or guessing — first check if there''s a logged error that explains it
 
 HOW TO RETRIEVE:
-- Simple case: use memory_search with keywords like "error", "failure", plus the workflow or node name the user mentioned. The hybrid fulltext index finds category=error rows naturally.
-- Targeted case: use the http_request tool to query PostgREST directly:
-  GET {{SUPABASE_URL}}/rest/v1/memory_long?category=eq.error&order=created_at.desc&limit=5
-  GET {{SUPABASE_URL}}/rest/v1/memory_long?category=eq.error&metadata->>workflow_name=eq.Sub-Agent Runner&order=created_at.desc
-  Headers: { "apikey": "{{SUPABASE_SERVICE_KEY}}" }
+- Use memory_search with keywords like "error", "failure", plus the workflow or node name the user mentioned. The hybrid fulltext index finds category=error rows naturally.
+- Add a time window in the query if the user asks about a specific period ("today", "last night", "this week").
 
 HOW TO REPORT:
 - Summarize in the user''s language and your own tone — do not dump raw metadata
 - Mention what failed (workflow + node), when (relative time like "heute Nacht um 03:12"), and the error message
-- If the execution_url is present, offer it as a clickable reference
+- If the execution URL is present in the content, offer it as a clickable reference
 - Do NOT invent errors — if memory_search returns nothing for the relevant window, say so plainly'),
 
   ('user_context', 'The user is {user}. Context: {ctx}')
