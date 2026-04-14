@@ -488,6 +488,10 @@ The `_responseChannel` value in metadata tells the adapter where to route the ag
 
 The Library Manager fetches skill templates from GitHub, imports the workflows into n8n, and registers the new MCP server automatically.
 
+Skills come in two flavors:
+- **Native** — n8n wraps a REST API as an MCP server (default pattern, most skills).
+- **Bridge** — registers an **existing external MCP server** (e.g. DeepWiki, Zapier, a self-hosted Claude Code MCP) directly into the agent by URL + optional bearer/header auth. No workflows imported, no wrapper code. Supported since v1.3.0. See the [Bridge Templates guide](https://github.com/freddy-schuetz/n8n-claw-templates/blob/master/templates/TEMPLATE_EXAMPLE.md#bridge-templates).
+
 | Category | Examples |
 |---|---|
 | Analytics | Google Analytics |
