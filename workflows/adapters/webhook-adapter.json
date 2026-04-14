@@ -115,6 +115,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Discord Reply",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -376,6 +383,28 @@
               },
               "renameOutput": true,
               "outputKey": "Paperclip"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.metadata?._responseChannel }}",
+                    "rightValue": "discord",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Discord"
             }
           ]
         },
@@ -682,6 +711,45 @@
       "position": [
         -500,
         800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://discord-bridge:3300/reply",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channelId\": \"{{ $json.metadata?.channelId }}\",\n  \"content\": {{ JSON.stringify($json.response || $json.message || \"\") }}\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "discord-reply",
+      "name": "Discord Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Discord Setup\n\nDiscord uses a small bot-sidecar container (`discord-bridge`). Opt in during `./setup.sh` when asked for a bot token — the container is only built and started if you enable it.\n\n**Get a bot token:**\n1. discord.com/developers/applications → New Application\n2. Add a Bot, enable **Message Content Intent**\n3. Copy the token, paste it during setup.sh\n4. Invite the bot with `bot` + `applications.commands` scopes\n\n**How it works:**\n- Sidecar subscribes to Discord Gateway\n- On each channel message it POSTs to this workflow's Webhook Trigger\n- Route Response → Discord Reply sends the agent's reply back via the same bot\n\nNo Discord credential in n8n — the bot token lives only in the sidecar.",
+        "height": 320,
+        "width": 340
+      },
+      "id": "sticky-discord-setup",
+      "name": "Discord Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -500,
+        -800
       ]
     }
   ]

@@ -377,18 +377,19 @@ Content-Type: application/json
 
 The agent uses `session_id` and `user_id` (with source prefix) for conversation history and user profiles — same as Telegram, just with different prefixes.
 
-### Webhook Adapter (Slack, Teams, Paperclip)
+### Webhook Adapter (Slack, Teams, Discord, Paperclip)
 
 For systems that need input/output mapping (different message formats, response routing), use the **Webhook Adapter** workflow. It translates between external formats and the agent's webhook API.
 
-The adapter ships with four triggers:
+The adapter ships with these input paths:
 
 | Trigger | Endpoint | Default state | Use case |
 |---|---|---|---|
-| **Generic Webhook** | `/webhook/adapter` | Active | Paperclip, API power-users (Code node with fallback chains) |
+| **Generic Webhook** | `/webhook/adapter` | Active | Paperclip, Discord bridge, API power-users (Code node with fallback chains) |
 | **Custom Webhook** | `/webhook/custom` | Active | Your own apps — simple Set node, easy to customize without code |
 | **Slack Trigger** | — | Disabled | Slack workspace integration |
 | **Teams Trigger** | — | Disabled | Microsoft Teams integration |
+| **Discord** | `/webhook/adapter` (via bot sidecar) | Opt-in | Discord servers — enabled via `setup.sh` prompt, uses the `discord-bridge` container |
 
 Each trigger has a mapper node that normalizes messages → calls `/webhook/agent` → routes the response back to the right system via `metadata._responseChannel`. Paperclip payloads are auto-detected and get a dedicated response branch that posts the agent's answer as a comment and marks the issue as done.
 
@@ -414,6 +415,21 @@ Each trigger has a mapper node that normalizes messages → calls `/webhook/agen
 4. **In n8n**: Create a Microsoft Teams OAuth2 credential
 5. **Enable the Teams Trigger + Teams Reply** nodes in the Webhook Adapter workflow
 6. **Activate the Webhook Adapter** workflow
+
+### Enabling Discord
+
+Unlike Slack and Teams, n8n does not ship a native Discord trigger. n8n-claw solves this with a small sidecar container (`discord-bridge`) that connects to Discord's Gateway as a bot and forwards messages to the adapter. The container is optional — it is only built and started if you enable Discord during setup.
+
+1. **Create a Discord Application** at [discord.com/developers/applications](https://discord.com/developers/applications)
+2. **Add a Bot**, enable **Message Content Intent** under Bot settings
+3. **Copy the Bot Token**
+4. **Invite the Bot** to your server with `bot` + `applications.commands` scopes
+5. **Run `./setup.sh`** (or `./setup.sh --force` on an existing install) — when asked *"Enable Discord as an additional chat interface?"* answer `y` and paste the token
+6. **Activate the Webhook Adapter** workflow in n8n
+
+That's it. No Discord credential in n8n itself — the bot token lives only inside the sidecar container, set via `DISCORD_BOT_TOKEN` in `.env`. The sidecar posts incoming messages to `/webhook/adapter` and receives replies via an internal `POST /reply` endpoint, so n8n never talks to Discord's API directly.
+
+Users who do not enable Discord never see the extra container: `discord-bridge` uses a docker-compose `profiles: ["discord"]` marker, so it is not built or started unless `COMPOSE_PROFILES=discord` is set in `.env` (which setup.sh does for you).
 
 ### Enabling Paperclip
 

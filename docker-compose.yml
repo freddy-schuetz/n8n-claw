@@ -161,6 +161,22 @@ services:
     networks:
       - n8n-claw-net
 
+  # ── Discord Bridge (Gateway → webhook, optional — enabled via COMPOSE_PROFILES=discord) ──
+  discord-bridge:
+    build: ./discord-bridge
+    container_name: n8n-claw-discord-bridge
+    profiles: ["discord"]
+    restart: unless-stopped
+    expose:
+      - "3300"
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/adapter
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - BRIDGE_PORT=3300
+    networks:
+      - n8n-claw-net
+
   # ── Crawl4AI (Web Reader — clean markdown from URLs) ────────
   crawl4ai:
     image: unclecode/crawl4ai:latest

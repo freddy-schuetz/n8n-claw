@@ -1,0 +1,13 @@
+{
+  "name": "n8n-claw-discord-bridge",
+  "version": "1.0.0",
+  "description": "Discord Gateway <-> n8n webhook bridge (optional, enabled via COMPOSE_PROFILES=discord)",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "express": "^4.21.2"
+  }
+}
