@@ -5,6 +5,121 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [1.4.0] — 2026-04-17
+
+### Enterprise & Productivity Skills — the agent meets the real SaaS stack
+
+Catalog expansion focused on the APIs teams actually run their business on: CRM, issue tracking, billing, project management. With this release the skill library covers the core SaaS stack (HubSpot, Salesforce, Zoho, Jira, Confluence, Stripe, Asana, Airtable) — so the agent can genuinely work alongside the user in their existing tools instead of acting as a standalone sandbox.
+
+Total skill catalog grows to 64. All CRM/issue-tracker skills use dynamic field discovery where supported, so custom fields flow through automatically without per-org manifest tweaks.
+
+### Added
+
+**CRM & Sales (123 tools across 4 skills):**
+- **HubSpot CRM** (28 tools) — Contacts, Companies, Deals, Tickets, Notes, Tasks, Engagements; search via HubSpot Filter API; Private App token auth.
+- **Salesforce CRM** (35 tools) — Leads, Contacts, Accounts, Opportunities, Cases, Tasks; SOQL + SOSL; Client-Credentials OAuth (Connected App). Instance URL auto-prefixes `https://` when the user pastes only the hostname, and auth errors surface the actual Salesforce error body instead of axios' generic "Request failed with status code 401".
+- **Zoho CRM** (37 tools) — Leads, Contacts, Accounts, Deals, Tasks, Cases, Notes, Users + `convert_lead`, `coql_query`, `describe_module`. Self-Client OAuth with **auto-exchange grant code** (no terminal / curl required — the skill trades the one-time grant code for a long-lived refresh token on first use and stores it back in the credential table). Regional endpoints (.com / .eu / .in / .com.au / .jp / .com.cn). `?fields=` capped at 50 per Zoho v8's hard limit, with subform/ownerlookup types filtered so orgs with many custom fields don't get a bare 400 on list calls.
+- **Stripe** (23 tools) — Customers, Payments, Subscriptions, Invoices, Products, Prices, Refunds.
+
+**Productivity & Project Management (49 tools across 4 skills):**
+- **Asana** (16 tools) — Tasks, Projects, Sections, Stories, Users, Workspaces; full CRUD. Shipped at v1.1.0 with 6 follow-up tools beyond the initial 10-tool release.
+- **Jira Cloud** (12 tools) — Issues, Projects, Users, JQL search, transitions, comments. Shares the Atlassian API token with Confluence.
+- **Confluence Cloud** (14 tools) — Spaces, Pages, Blog Posts, Comments, Attachments, CQL search. Both Atlassian skills use a custom `buildQs` query-string helper instead of the n8n sandbox's `URLSearchParams`, which stringifies arrays as `[object Object]` and was corrupting JQL/CQL queries with commas or spaces.
+- **Airtable** (7 tools) — Bases, Tables, Records (list / get / create / update / delete).
+
+**Knowledge, Finance & Media (5 skills):**
+- **YouTube Data API** (4 tools) — Search videos/channels, get video/channel details.
+- **Finnhub Stocks** (5 tools) — Quotes, company profiles, news, earnings.
+- **Open Library** (3 tools) — `search_books`, `get_book`, `get_author`.
+- **Unsplash** (3 tools) — `search_photos`, `get_random_photo`, `get_photo`.
+- **OpenAQ Air Quality** — v3 API, air quality measurements and stations.
+
+**Smart Home, Maps, Messaging (3 skills):**
+- **Home Assistant** — control devices and query state on a self-hosted Home Assistant instance. Includes a `speak` tool that auto-routes to TTS-capable media players for voice output. New `smart-home` category.
+- **Overpass OSM** — OpenStreetMap queries via Overpass API. Ships with automatic mirror fallback (main → de → fr → kumi) so requests keep working when overpass-api.de is degraded, a `reverse_geocode` tool, and auto-reverse-geocoded results in `find_nearby` so the LLM gets street names instead of raw lat/lon. New `maps` category.
+- **ntfy** — push notifications via ntfy.sh (self-hosted or hosted). Non-ASCII header values (German umlauts in Title/Message) are RFC 2047 encoded, and server errors are passed through verbatim instead of being swallowed by a generic "Failed to send notification".
+
+### Changed
+- **`mcp-client`**: empty strings are now accepted for required parameters. Previously the pre-flight schema check rejected the call before the tool could apply its own default handling, so an LLM passing `""` for a required field would get a hard error instead of the tool's graceful default.
+- **Route-planner** moved from the `transport` category to `maps` to match the Overpass addition. Two new valid categories: `maps`, `smart-home`.
+
+### Upgrade from v1.3.2
+```bash
+cd n8n-claw && git pull && ./setup.sh --force
+```
+Then install the skills you want via chat:
+- `install hubspot` / `install salesforce` / `install zoho-crm` — CRMs (each requires its own API credentials)
+- `install jira` / `install confluence` — with an Atlassian API token (same token works for both)
+- `install asana` / `install stripe` / `install airtable` — with the respective API key
+- `install youtube` / `install finnhub` / `install unsplash` / `install openlibrary` / `install openaq` — mostly free / generous free tiers
+- `install home-assistant` / `install overpass-osm` / `install ntfy` — self-hosted or free services
+
+No schema migrations. No breaking changes to existing skills.
+
+---
+
+## [1.3.2] — 2026-04-15
+
+### Discord Adapter + Webhook Adapter Default-Active
+
+Discord joins Telegram as a supported chat interface, and the Webhook Adapter is now activated by default so generic/Paperclip integrations stop silently breaking on `--force`.
+
+### Added
+- **New workflow: `discord-bridge`** — opt-in Discord.js v14 Gateway client + Express `/reply` endpoint, packaged as a sidecar container behind the `discord` Compose profile. A single `y/N` prompt during `setup.sh` enables it; on opt-in, `COMPOSE_PROFILES` gets `discord` and the sidecar starts with the rest of the stack. Routes messages to the agent via `/webhook/adapter` and replies back through the bridge.
+- **Bridge-skill docs** in README and `CLAUDE.md` — now that external MCP servers (bridge templates) are first-class, both docs call out the distinction between native (wrapped) and bridge (URL-registered) skills.
+
+### Changed
+- **`setup.sh` activates the Webhook Adapter unconditionally** — the previous "inactive by default" stance was reflex caution. Slack/Teams triggers inside the adapter are node-level disabled and stay dormant, the generic webhook is auth-protected via `WEBHOOK_SECRET`, and Paperclip + custom webhook consumers were silently breaking on every `--force`. The adapter is now always live after deploy.
+
+### Upgrade from v1.3.1
+```bash
+cd n8n-claw && git pull && ./setup.sh --force
+```
+To enable Discord, answer `y` at the Discord prompt during setup and provide a bot token. The sidecar only starts when the profile is active, so existing Telegram-only installs are unaffected.
+
+---
+
+## [1.3.1] — 2026-04-14
+
+### Bridge MCP: Schema-Hint Retry
+
+Follow-up to v1.3.0 that makes external MCP tool calls more resilient to LLM schema mismatches.
+
+### Added
+- **Schema-hint retry for bridge tool calls** — when a tool call to an external MCP server fails with a schema error (the LLM passed arguments the bridge target rejects), the MCP Client now retries once with the tool's JSON schema appended to the error, giving the LLM a concrete correction target. Native (wrapped) skills were unaffected by the original issue because their schemas are always in-context; bridge skills only expose schemas via `tools/list`, which the LLM sometimes misremembers.
+
+### Upgrade from v1.3.0
+```bash
+cd n8n-claw && git pull && ./setup.sh --force
+```
+No skill updates required. Existing bridge installs benefit automatically.
+
+---
+
+## [1.3.0] — 2026-04-13
+
+### MCP Bridge — External MCP Servers as First-Class Skills
+
+Any existing MCP server (DeepWiki, Zapier, a self-hosted Claude Code MCP, commercial vendor endpoints) can now be registered directly as a skill — no wrapper workflow, no code to maintain — just a URL plus optional bearer/header auth. This unlocks the broader MCP ecosystem without forcing every integration to be re-implemented as an n8n workflow.
+
+### Added
+- **Bridge templates** — new manifest type (`type: "bridge"`) that points at an external MCP Streamable HTTP endpoint. The Library Manager imports no workflows for bridge skills; instead it writes straight into `mcp_registry` so the agent's MCP Client can call the remote tools like any other skill.
+- **Bridge manifest schema** — `bridge.mcp_url`, `auth_type` (`bearer`/`header`/`none`), `auth_token_required`, `auth_label`, `auth_hint`. Auth tokens (when required) flow through the same credential-form link that native skills use, are stored in `template_credentials`, and are reused on re-install.
+- **First bridge template: DeepWiki** — no-auth reference implementation that registers the hosted DeepWiki MCP server for Q&A across public GitHub repositories.
+- **Template-repo docs** — `TEMPLATE_EXAMPLE.md` gained a dedicated "Bridge Templates" section; the templates-repo `CLAUDE.md` was updated so contributors know when to reach for a bridge template vs a native workflow.
+
+### Changed
+- **Library Manager** — `install_template` / `remove_template` / `add_credential` each branch on `manifest.type` so bridge skills skip workflow import, activation, and deletion entirely. The bundled CDN hash was bumped to pick up the new template schema.
+
+### Upgrade from v1.2.3
+```bash
+cd n8n-claw && git pull && ./setup.sh --force
+```
+Then try the first bridge skill:
+- `install deepwiki` — no credentials needed; asks the agent anything about a public GitHub repo, e.g. *"What does the `train_ppo` script in huggingface/trl do?"*
+
+---
+
 ## [1.2.3] — 2026-04-12
 
 ### Error Notification Workflow + Proactive Failure Awareness
