@@ -282,7 +282,7 @@
       "main": [
         [
           {
-            "node": "Build System Prompt",
+            "node": "Load Insights",
             "type": "main",
             "index": 0
           }
@@ -690,6 +690,20 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Load Insights": {
+      "main": [
+        [
+          {
+            "node": "Build System Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_tool": [
+        []
       ]
     }
   },
@@ -1197,14 +1211,14 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build system prompt from loaded context\nconst soul = $('Load Soul').all().map(i => i.json);\n// Deduplicate: sequential node chaining causes cartesian product (6 soul × 6 agents = 36 items)\nconst agentsRaw = $('Load Agents Config').all().map(i => i.json);\nconst agents = [...new Map(agentsRaw.map(a => [a.key, a])).values()];\nconst user = $('Load User Profile').first()?.json || {};\n// Deduplicate conversation history (36x duplicated due to upstream cartesian product)\nconst historyRaw = $('Load Conversation History').all().map(i => i.json);\nconst seenHist = new Set();\nconst history = historyRaw.filter(h => { const k = h.role + ':' + h.content; if (seenHist.has(k)) return false; seenHist.add(k); return true; });\nconst mergeData = $('Merge Input').first().json;\nconst userMessage = mergeData.userMessage || '';\nconst chatId = mergeData.chatId;\nconst userId = mergeData.userId;\nconst inputSource = mergeData.source || 'telegram';\n\n// Build dynamic MCP server list from mcp_registry\nconst mcpRaw = $('Load MCP Servers').all().map(i => i.json);\nconst seenMcp = new Set();\nconst mcpServers = mcpRaw.filter(s => { if (!s.server_name || seenMcp.has(s.server_name)) return false; seenMcp.add(s.server_name); return true; });\nlet mcpServerList = '';\nif (mcpServers.length > 0) {\n  mcpServerList = '\\n\\n## Available MCP Skills:\\n' + mcpServers.map(s => {\n    const tools = Array.isArray(s.tools) ? s.tools.join(', ') : s.tools;\n    return `- ${s.server_name}: ${s.mcp_url} (tools: ${tools})${s.description ? ' — ' + s.description : ''}`;\n  }).join('\\n');\n}\n\n// Inject dynamic server list into mcp_instructions (replace any static server section)\nconst agentText = agents.map(a => {\n  if (a.key === 'mcp_instructions') {\n    const cleaned = a.content.replace(/\\n## (?:Available MCP (?:Servers|Skills)|Currently installed MCP Skills)[\\s\\S]*?(?=\\n## |$)/, '');\n    return `## ${a.key}\\n${cleaned}${mcpServerList}`;\n  }\n  return `## ${a.key}\\n${a.content}`;\n}).join('\\n\\n');\n\n// Build soul text\nconst soulText = soul.map(s => `## ${s.key}\\n${s.content}`).join('\\n\\n');\nconst userText = user.display_name \n  ? `Name: ${user.display_name} (${user.name})\\nTimezone: ${user.timezone}\\nKontext: ${user.context}\\nPrefs: ${JSON.stringify(user.preferences)}\\nSetup done: ${user.setup_done !== false ? 'true' : 'false'}`\n  : 'Unbekannter User';\n\n// Build conversation history\nconst historyText = history.reverse().map(h => `${h.role}: ${h.content}`).join('\\n');\n\n// Current date/time in user's timezone\nconst now = $now.setZone(user.timezone || 'UTC').toFormat('cccc, dd LLLL yyyy, HH:mm');\n\nconst scheduledHint = inputSource === 'scheduled_task' ? '\\n\\n# SCHEDULED TASK\\nThis message is a scheduled task that the user set up earlier. Execute the instructions thoroughly and send the result. Start your response with a brief ⏰ note that this is a scheduled task result.' : '';\n\n// Build active projects list (names only — content loaded on demand via Project Manager tool)\nconst projectsRaw = $('Load Active Projects').all().map(i => i.json);\nconst seenProj = new Set();\nconst activeProjects = projectsRaw.filter(p => { if (!p.name || seenProj.has(p.name)) return false; seenProj.add(p.name); return true; });\nlet projectsSection = '';\nif (activeProjects.length > 0) {\n  projectsSection = '\\n\\n# ACTIVE PROJECTS\\n' + activeProjects.map(p => {\n    const d = p.updated_at ? new Date(p.updated_at).toISOString().split('T')[0] : '';\n    return `- ${p.name} (updated: ${d})`;\n  }).join('\\n') + '\\nUse the Project Manager tool to read or update project details.';\n}\n\nconst systemPrompt = `# CURRENT TIME\\n${now}\\n\\n# SOUL\\n${soulText}\\n\\n# AGENT CONFIG\\n${agentText}\\n\\n# USER PROFILE\\n${userText}${scheduledHint}${projectsSection}\\n\\n# RECENT CONVERSATION\\n${historyText}`;\n\nreturn [{\n  json: {\n    systemPrompt,\n    userMessage,\n    chatId: String(chatId),\n    userId: String(userId),\n    sessionId: mergeData.sessionId || `telegram:${chatId}`,\n    qualifiedUserId: mergeData.qualifiedUserId || `telegram:${userId}`,\n    source: inputSource,\n    _webhookSource: mergeData._webhookSource || false,\n    metadata: mergeData.metadata || {}\n  }\n}];"
+        "jsCode": "// Build system prompt from loaded context\nconst soul = $('Load Soul').all().map(i => i.json);\n// Deduplicate: sequential node chaining causes cartesian product (6 soul × 6 agents = 36 items)\nconst agentsRaw = $('Load Agents Config').all().map(i => i.json);\nconst agents = [...new Map(agentsRaw.map(a => [a.key, a])).values()];\nconst user = $('Load User Profile').first()?.json || {};\n// Deduplicate conversation history (36x duplicated due to upstream cartesian product)\nconst historyRaw = $('Load Conversation History').all().map(i => i.json);\nconst seenHist = new Set();\nconst history = historyRaw.filter(h => { const k = h.role + ':' + h.content; if (seenHist.has(k)) return false; seenHist.add(k); return true; });\nconst mergeData = $('Merge Input').first().json;\nconst userMessage = mergeData.userMessage || '';\nconst chatId = mergeData.chatId;\nconst userId = mergeData.userId;\nconst inputSource = mergeData.source || 'telegram';\n\n// Build dynamic MCP server list from mcp_registry\nconst mcpRaw = $('Load MCP Servers').all().map(i => i.json);\nconst seenMcp = new Set();\nconst mcpServers = mcpRaw.filter(s => { if (!s.server_name || seenMcp.has(s.server_name)) return false; seenMcp.add(s.server_name); return true; });\nlet mcpServerList = '';\nif (mcpServers.length > 0) {\n  mcpServerList = '\\n\\n## Available MCP Skills:\\n' + mcpServers.map(s => {\n    const tools = Array.isArray(s.tools) ? s.tools.join(', ') : s.tools;\n    return `- ${s.server_name}: ${s.mcp_url} (tools: ${tools})${s.description ? ' — ' + s.description : ''}`;\n  }).join('\\n');\n}\n\n// Inject dynamic server list into mcp_instructions (replace any static server section)\nconst agentText = agents.map(a => {\n  if (a.key === 'mcp_instructions') {\n    const cleaned = a.content.replace(/\\n## (?:Available MCP (?:Servers|Skills)|Currently installed MCP Skills)[\\s\\S]*?(?=\\n## |$)/, '');\n    return `## ${a.key}\\n${cleaned}${mcpServerList}`;\n  }\n  return `## ${a.key}\\n${a.content}`;\n}).join('\\n\\n');\n\n// Build soul text\nconst soulText = soul.map(s => `## ${s.key}\\n${s.content}`).join('\\n\\n');\nconst userText = user.display_name\n  ? `Name: ${user.display_name} (${user.name})\\nTimezone: ${user.timezone}\\nKontext: ${user.context}\\nPrefs: ${JSON.stringify(user.preferences)}\\nSetup done: ${user.setup_done !== false ? 'true' : 'false'}`\n  : 'Unbekannter User';\n\n// Build conversation history\nconst historyText = history.reverse().map(h => `${h.role}: ${h.content}`).join('\\n');\n\n// Current date/time in user's timezone\nconst now = $now.setZone(user.timezone || 'UTC').toFormat('cccc, dd LLLL yyyy, HH:mm');\n\nconst scheduledHint = inputSource === 'scheduled_task' ? '\\n\\n# SCHEDULED TASK\\nThis message is a scheduled task that the user set up earlier. Execute the instructions thoroughly and send the result. Start your response with a brief ⏰ note that this is a scheduled task result.' : '';\n\n// Build active projects list (names only — content loaded on demand via Project Manager tool)\nconst projectsRaw = $('Load Active Projects').all().map(i => i.json);\nconst seenProj = new Set();\nconst activeProjects = projectsRaw.filter(p => { if (!p.name || seenProj.has(p.name)) return false; seenProj.add(p.name); return true; });\nlet projectsSection = '';\nif (activeProjects.length > 0) {\n  projectsSection = '\\n\\n# ACTIVE PROJECTS\\n' + activeProjects.map(p => {\n    const d = p.updated_at ? new Date(p.updated_at).toISOString().split('T')[0] : '';\n    return `- ${p.name} (updated: ${d})`;\n  }).join('\\n') + '\\nUse the Project Manager tool to read or update project details.';\n}\n\n// Insights — derived from nightly memory consolidation pattern extraction (n8n-claw v1.4 Hermes-Memory)\n// Top-3 by importance, non-outdated. Empty section omitted entirely if no insights yet.\nconst insightsRaw = $('Load Insights').all().map(i => i.json);\nconst seenIns = new Set();\nconst insights = insightsRaw.filter(i => { if (!i || !i.content || seenIns.has(i.id)) return false; seenIns.add(i.id); return true; });\nlet insightsSection = '';\nif (insights.length > 0) {\n  insightsSection = '\\n\\n# WHAT YOU KNOW ABOUT THE USER (INSIGHTS)\\nThese behavioral patterns were extracted from past conversations during nightly consolidation. Use them as context to shape your responses, but do NOT explicitly cite them (\"I noticed you tend to...\"). Let them inform your tone, pacing, and suggestions silently.\\n' + insights.map(i => `- ${i.content}`).join('\\n');\n}\n\nconst systemPrompt = `# CURRENT TIME\\n${now}\\n\\n# SOUL\\n${soulText}\\n\\n# AGENT CONFIG\\n${agentText}\\n\\n# USER PROFILE\\n${userText}${insightsSection}${scheduledHint}${projectsSection}\\n\\n# RECENT CONVERSATION\\n${historyText}`;\n\nreturn [{\n  json: {\n    systemPrompt,\n    userMessage,\n    chatId: String(chatId),\n    userId: String(userId),\n    sessionId: mergeData.sessionId || `telegram:${chatId}`,\n    qualifiedUserId: mergeData.qualifiedUserId || `telegram:${userId}`,\n    source: inputSource,\n    _webhookSource: mergeData._webhookSource || false,\n    metadata: mergeData.metadata || {}\n  }\n}];"
       },
       "id": "build-prompt",
       "name": "Build System Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2208,
+        2320,
         -16
       ]
     },
@@ -1581,6 +1595,32 @@
       "executeOnce": true,
       "position": [
         2096,
+        -16
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      },
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, content, importance FROM memory_long WHERE category = 'insight' AND COALESCE(metadata->>'outdated', 'false') <> 'true' ORDER BY importance DESC, created_at DESC LIMIT 3",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "id": "load-insights",
+      "name": "Load Insights",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "executeOnce": true,
+      "position": [
+        2208,
         -16
       ],
       "credentials": {
