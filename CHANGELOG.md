@@ -5,6 +5,39 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [1.5.0] — 2026-04-18
+
+### Memory that models the user, not just remembers facts
+
+Three additions turn the memory layer from a passive fact store into an active user-modelling system — without adding token overhead to live conversations.
+
+**Nightly pattern extraction.** The memory-consolidation workflow now runs a second LLM pass after the daily factual summary. It reads the day's consolidated memory alongside the last 7 days of existing insights and extracts 2–5 behavioural patterns — stressors, working rhythms, communication style, abandoned intentions — tagged as `new`, `reinforced`, or `contradicted`. Contradicted insights get marked `metadata.outdated=true` (soft-delete via knowledge-graph-style temporal validity) rather than overwritten, so the history of what the agent *used to believe* about the user stays queryable. Results are saved as `category='insight'` with `importance=8–9`, persisting via the existing half-life decay logic for roughly 250 days.
+
+**Open loops with proactive follow-up.** New memory category `open_loop` for intentions the user mentions in passing ("I should probably compare that Hostinger quote", "don't forget Y"). The heartbeat workflow checks every 24–48h (throttled via `heartbeat_config`) for open loops older than 3 days and — if any are worth raising — asks the agent to fire a proactive Telegram ping. When the user responds with a resolution, the agent calls `memory_update` with strict rules: category stays `open_loop`, content stays byte-for-byte, only `metadata` gets merged in with `{closed, closed_at, outcome}`. The audit trail survives because pattern analysis needs the historical signal — *"Freddy opened 12 infrastructure open loops and abandoned 10 of them"* requires the original rows to remain queryable as open_loops, with original wording intact.
+
+**Insight recall in the system prompt.** Every agent turn now preloads the top 3 non-outdated insights (by importance, then recency) into a new system-prompt section — *"What you know about the user"*. Adds ~200–500 input tokens per turn in exchange for context the agent would otherwise have to search for. The instruction tells the model to let insights *shape* its behaviour rather than quote them back at the user.
+
+### Added
+
+- **`memory-consolidation.json`** — 5 new nodes after the existing Save Consolidated step: `Load Recent Insights`, `Build Insight Prompt`, `Insight LLM Call` (same provider as the daily summary, temperature 0.3), `Parse Insights` (handles contradicted → outdated marking), `Save Insights`. No schema change: `memory_long.category` has no CHECK constraint, so `insight` is additive.
+- **`heartbeat.json`** — new `open_loop_check` branch parallel to the existing scheduled-actions path. Fires proactive prompts via fire-and-forget sub-workflow call to the agent, updates `heartbeat_config.last_run` immediately regardless of agent outcome. Output filter drops `[SKIP]` responses before they reach Telegram.
+- **`n8n-claw-agent.json`** — new `Load Insights` Postgres node (parallel to Soul / Agents / User Profile loads) and a system-prompt extension in `Build System Prompt` that appends the insights section only when rows exist (no empty header).
+- **Agent instructions** — the `agents` seed in `setup.sh` now teaches the agent when to create open loops (casual intentions) vs. tasks (formal work items) vs. reminders (time-triggered pings), and the strict close-rules for open loops.
+
+### Fixed
+
+- **`memory_update` dropped the `metadata` field.** The tool's description and jsCode only supported content, category, importance, tags, entity_name, source — so the agent's correct `{id, metadata: {closed: true, ...}}` call silently went through without writing metadata. Fixed: description now documents `metadata (object — merged with existing metadata, not replaced)` and the jsCode does a shallow merge by fetching current metadata, spreading input on top, and PATCHing back. Existing keys survive updates.
+- **`setup.sh` workflow lookup missed workflows past the first 100.** The `?limit=100` call had no cursor pagination, so with 132+ workflows on the instance the agent itself wasn't found during `--force` reimport. The lookup fell through to the CREATE branch instead of DELETE+CREATE, leaving two agent workflows (old active, new inactive) fighting over the same webhook paths. Fixed: replaced the curl with a Python loop that paginates via `nextCursor`, plus a deactivate-before-delete to ensure n8n cleans up `webhook_entity` rows. Heartbeat / Reminder Runner activation errors, previously swallowed silently, now surface.
+- **`[SKIP]` heartbeat responses leaked into conversation history.** The agent's proactive-reminder output filter dropped `[SKIP]` before Telegram send, but the Save Conversation node still logged it. Fixed: filter moved upstream so `[SKIP]` turns leave no trace in `conversations` or `memory_daily`.
+
+### Upgrade from v1.4.0
+```bash
+cd n8n-claw && git pull && ./setup.sh --force
+```
+No schema migrations. The new memory categories (`insight`, `open_loop`) are additive — existing memories are untouched. Open loops begin accumulating as soon as the new agent instruction is seeded; the first insights will appear after the next nightly consolidation run (03:00).
+
+---
+
 ## [1.4.0] — 2026-04-17
 
 ### Enterprise & Productivity Skills — the agent meets the real SaaS stack
