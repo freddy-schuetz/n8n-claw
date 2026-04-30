@@ -237,26 +237,41 @@ docker run --rm -v "$DB_VOLUME:/data" alpine sh -c "rm -rf /data/* /data/.[!.]* 
 echo "  ✓ Volume wiped"
 
 # ── 7. Start fresh PG17 standalone ───────────────────────────
-echo -e "${GREEN}==> Starting fresh PG17 cluster (standalone)${NC}"
+# Critical setup choices:
+#   - Mount our supabase/migrations into /docker-entrypoint-initdb.d so OUR
+#     000_extensions.sql + 001_schema.sql etc. run during init. This builds
+#     the same role/schema layout the live PG15 has (postgres + supabase_admin
+#     + anon + authenticated + service_role + uuid-ossp + vector + unaccent),
+#     and CRUCIALLY HIDES the supabase/postgres image's own baked-in init at
+#     /docker-entrypoint-initdb.d/init-scripts/ + migrate.sh + migrations/.
+#     The baked-in init creates pg_graphql with an event trigger that fires
+#     on every DDL statement — during a 277 MB restore that means tens of
+#     thousands of trigger fires, and supautils eventually pg_terminate_backend's
+#     the restore session. By suppressing the baked-in init we get a minimal
+#     cluster matching the source PG15 exactly: 4 extensions, 0 event triggers,
+#     only public schema.
+#   - POSTGRES_USER=postgres so that the Docker entrypoint creates `postgres`
+#     as the initdb superuser (matches docker-compose.yml). Without this, the
+#     image defaults to `supabase_admin` as superuser and our migrations'
+#     ALTER FUNCTION ... OWNER TO postgres clauses would fail.
+echo -e "${GREEN}==> Starting fresh PG17 cluster (standalone with our migrations)${NC}"
 docker run -d --name "$DB_TMP_CONTAINER" \
     --network "$COMPOSE_NETWORK" \
     -v "$DB_VOLUME:/var/lib/postgresql/data" \
+    -v "$(pwd)/supabase/migrations:/docker-entrypoint-initdb.d:ro" \
+    -e POSTGRES_USER=postgres \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e POSTGRES_DB=postgres \
     "$PG17_IMAGE" >/dev/null
 
-echo "    Waiting for initdb + baked-in init to complete..."
+echo "    Waiting for init to complete (initdb + our migrations 000-007)..."
 
-# Wait for both:
-#   (a) Postgres reachable via Unix socket (pg_isready returns OK)
-#   (b) Baked-in init has FINISHED creating the standard supabase roles
-#       (the migrate.sh / dbmate step completes only after socket is up).
-# We probe for `supabase_admin` because it's the role created last in the
-# baked-in chain; once it exists, all earlier roles do too.
+# Readiness signal: pg_isready accepts connections + supabase_admin role
+# exists (created by 000_extensions.sql, very early in our migration chain).
+# In testing this typically takes ~5s.
 READY=0
 for i in $(seq 1 120); do
     if docker exec "$DB_TMP_CONTAINER" pg_isready -U postgres >/dev/null 2>&1; then
-        # Socket is up; now check that init scripts actually completed
         ROLE_COUNT=$(docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" "$DB_TMP_CONTAINER" \
             psql -U postgres -At -c "SELECT count(*) FROM pg_roles WHERE rolname='supabase_admin';" 2>/dev/null || echo "0")
         if [ "$ROLE_COUNT" = "1" ]; then
@@ -277,7 +292,16 @@ NEW_VERSION=$(docker exec "$DB_TMP_CONTAINER" psql -U postgres -At -c "SHOW serv
     echo -e "${RED}  ✘ Expected PG17, got PG$NEW_VERSION${NC}"
     exit 1
 }
-echo "  ✓ Fresh PG17 cluster ready (with baked-in roles incl. supabase_admin)"
+
+# Sanity check the cluster matches what we expect: no event triggers (pg_graphql)
+# and only the schemas/extensions our migrations create.
+EVT_COUNT=$(docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" "$DB_TMP_CONTAINER" \
+    psql -U postgres -d postgres -At -c "SELECT count(*) FROM pg_event_trigger;" 2>/dev/null || echo "?")
+if [ "$EVT_COUNT" != "0" ]; then
+    echo -e "${YELLOW}  ⚠ Unexpected event triggers in fresh cluster ($EVT_COUNT). The supabase baked-in init may have leaked through and could interfere with restore.${NC}"
+    confirm "  Continue anyway?" || { docker stop "$DB_TMP_CONTAINER" >/dev/null; exit 1; }
+fi
+echo "  ✓ Fresh PG17 cluster ready (postgres superuser, $EVT_COUNT event triggers)"
 
 # ── 8. Restore dump ──────────────────────────────────────────
 echo -e "${GREEN}==> Restoring dump into PG17${NC}"
