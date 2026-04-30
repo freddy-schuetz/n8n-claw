@@ -1274,7 +1274,7 @@ Use `--force` when you want to change your agent's name, language, communication
 
 </summary>
 
-n8n-claw ships with PostgreSQL 15 by default. Supabase's platform support for PG15 ends around May 2026; PostgreSQL community EOL for PG15 is November 2027. Most users have time, but the official Supabase self-hosted upgrade path to PG17 is now stable and you can do it on your own schedule.
+n8n-claw ships with **PostgreSQL 17** by default for fresh installs. If you already have an n8n-claw installation on PG15, this section is for you — it walks through the one-shot upgrade. (Supabase's platform support for PG15 ends around May 2026; PostgreSQL community EOL for PG15 is November 2027. Plan accordingly but no panic.)
 
 **Why this needs a special command:** Postgres major versions change the on-disk storage format. A simple image-tag swap would refuse to start with `FATAL: database files are incompatible with server`. The data has to be migrated to the new format.
 

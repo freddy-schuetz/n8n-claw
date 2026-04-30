@@ -36,7 +36,7 @@ services:
 
   # ── PostgreSQL (for Supabase) ───────────────────────────────
   db:
-    image: supabase/postgres:15.8.1.085
+    image: supabase/postgres:17.6.1.063
     container_name: n8n-claw-db
     restart: unless-stopped
     ports:

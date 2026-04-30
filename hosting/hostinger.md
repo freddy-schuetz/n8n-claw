@@ -65,7 +65,7 @@ Single user-defined bridge network `n8n-claw-net`. Only **one port** is exposed 
 | Service | Image / build | Host exposure | Purpose |
 |---|---|---|---|
 | `n8n` | `n8nio/n8n:latest` | `0.0.0.0:5678` | Agent UI + webhooks (only public port) |
-| `db` | `supabase/postgres:15.8.1.085` | `127.0.0.1:5432` | PostgreSQL 15 (or 17 after `./setup.sh --upgrade-pg17`) with `uuid-ossp` + `vector` |
+| `db` | `supabase/postgres:17.6.1.063` | `127.0.0.1:5432` | PostgreSQL 17 with `uuid-ossp` + `vector` |
 | `rest` | `postgrest/postgrest:v14.5` | `127.0.0.1:3000` | PostgREST (memory/config queries) |
 | `kong` | `kong:2.8.1` | container-only (`expose: 8000`) | API gateway in front of PostgREST |
 | `studio` | `supabase/studio:20250113-83c9420` | `127.0.0.1:3001` | Supabase Studio (DB inspection) |
