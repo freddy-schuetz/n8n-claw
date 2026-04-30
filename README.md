@@ -1276,12 +1276,14 @@ Use `--force` when you want to change your agent's name, language, communication
 
 n8n-claw ships with PostgreSQL 15 by default. Supabase's platform support for PG15 ends around May 2026; PostgreSQL community EOL for PG15 is November 2027. Most users have time, but the official Supabase self-hosted upgrade path to PG17 is now stable and you can do it on your own schedule.
 
-**Why this needs a special command:** Postgres major versions change the on-disk storage format. A simple image-tag swap would refuse to start with `FATAL: database files are incompatible with server`. You need `pg_upgrade` to convert the data directory once.
+**Why this needs a special command:** Postgres major versions change the on-disk storage format. A simple image-tag swap would refuse to start with `FATAL: database files are incompatible with server`. The data has to be migrated to the new format.
+
+**Method:** `pg_dump` from PG15 → start a fresh PG17 cluster → restore the dump. We use this rather than in-place `pg_upgrade` because Supabase's official upgrade tool is tightly coupled to their full self-host stack (vault encryption, db-config volume) which n8n-claw doesn't ship. Dump/restore is the cleaner fit for our minimal stack and small DBs.
 
 **Requirements:**
-- At least **2× current DB size + 5 GB** of free disk space
+- At least **3× current DB size + 2 GB** of free disk space (dump + backup + new cluster + buffer)
 - VM-level snapshot (Hetzner / Vultr / etc.) recommended before running
-- ~2-5 minutes of downtime
+- ~3-5 minutes of downtime
 
 **Run the upgrade:**
 
@@ -1291,12 +1293,15 @@ sudo ./setup.sh --upgrade-pg17
 
 The script:
 1. Pre-flight checks: PG version, disk space, incompatible extensions, replication slots
-2. Migrates the Docker named volume to a host bind mount (one-time)
+2. Migrates the Docker named volume to a host bind mount (one-time, if not already done)
 3. Asks you to confirm before any data is touched
-4. Downloads and runs Supabase's official `upgrade-pg17.sh` (pinned to a known-good commit)
-5. Writes a `docker-compose.override.yml` with the PG17 image tag
-6. Applies post-upgrade migration `007_pg17_compat.sql`
-7. Verifies with `SELECT version()`
+4. Dumps the PG15 database to `./volumes/db/dump_pg15.sql`
+5. Renames the PG15 data dir to `./volumes/db/data.bak.pg15` (preserved for rollback)
+6. Writes `docker-compose.override.yml` with the PG17 image tag
+7. Starts a fresh PG17 cluster (auto-init suppressed; restore handles the schema)
+8. Restores the dump
+9. Applies post-upgrade migration `007_pg17_compat.sql`
+10. Verifies with `SELECT version()` and row counts
 
 The original PG15 data directory is preserved as `./volumes/db/data.bak.pg15` for rollback. Delete it after 2-3 days of verified live operation:
 
