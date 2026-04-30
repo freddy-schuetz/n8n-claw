@@ -89,16 +89,68 @@ set_env() {
 # ── Detect install mode ──────────────────────────────────────
 INSTALL_MODE="fresh"
 FORCE_FLAG=""
+UPGRADE_PG17=""
 [[ "$1" == "--force" ]] && FORCE_FLAG="--force"
+[[ "$1" == "--upgrade-pg17" ]] && UPGRADE_PG17="true"
+
+# ── Postgres 15 → 17 upgrade dispatch (one-shot, must run on existing instance) ──
+if [ -n "$UPGRADE_PG17" ]; then
+  CYAN='\033[0;36m'
+  echo -e "\n${CYAN}🔄 Postgres 15 → 17 Upgrade Mode${NC}"
+  if [ ! -f utils/upgrade-pg17.sh ]; then
+    echo -e "${RED}❌ utils/upgrade-pg17.sh not found. Pull the latest n8n-claw first.${NC}"
+    exit 1
+  fi
+  exec bash utils/upgrade-pg17.sh "${@:2}"
+fi
 
 if docker volume inspect n8n-claw_n8n_data > /dev/null 2>&1; then
   INSTALL_MODE="update"
   CYAN='\033[0;36m'
   echo -e "\n${CYAN}🔄 Existing installation detected — running in update mode${NC}"
   echo "  Use --force to reimport workflows and reconfigure personality"
+  echo "  Use --upgrade-pg17 to upgrade Postgres 15 → 17 (one-shot, see README)"
   # Auto-update from git if possible
   git pull --ff-only 2>/dev/null && echo -e "  ${GREEN}✅ Updated to latest version${NC}" \
     || echo -e "  ⚠️  Could not auto-update — run 'git pull' manually if needed"
+
+  # ── Postgres major-version mismatch check ──────────────────────
+  # docker-compose.yml ships PG17. If the existing data dir is PG15
+  # (and no override pins the image to 15), starting compose would
+  # crash the db container with "database files are incompatible".
+  # Block the update and route the user to --upgrade-pg17.
+  if docker volume inspect n8n-claw_db_data > /dev/null 2>&1; then
+    EXISTING_PG_MAJOR=$(docker run --rm -v n8n-claw_db_data:/data alpine \
+      cat /data/PG_VERSION 2>/dev/null | tr -d '[:space:]' || true)
+    COMPOSE_PG_MAJOR=$(grep -E "^\s+image:\s+supabase/postgres:" docker-compose.yml \
+      | head -n 1 | awk -F: '{print $3}' | tr -d '[:space:]"' | cut -d. -f1)
+    OVERRIDE_PG_MAJOR=""
+    if [ -f docker-compose.override.yml ]; then
+      OVERRIDE_PG_MAJOR=$(grep -E "image:\s+supabase/postgres:" docker-compose.override.yml \
+        | head -n 1 | awk -F: '{print $3}' | tr -d '[:space:]"' | cut -d. -f1)
+    fi
+    EFFECTIVE_PG_MAJOR="${OVERRIDE_PG_MAJOR:-$COMPOSE_PG_MAJOR}"
+    if [ -n "$EXISTING_PG_MAJOR" ] && [ -n "$EFFECTIVE_PG_MAJOR" ] \
+       && [ "$EXISTING_PG_MAJOR" != "$EFFECTIVE_PG_MAJOR" ]; then
+      echo -e "\n${RED}❌ Postgres major-version mismatch${NC}"
+      echo "    Existing data:    PG${EXISTING_PG_MAJOR} (in volume n8n-claw_db_data)"
+      echo "    Configured image: PG${EFFECTIVE_PG_MAJOR} (from docker-compose.yml)"
+      echo ""
+      echo "    Continuing this update would crash the db container with"
+      echo "    'database files are incompatible with server'."
+      echo ""
+      if [ "$EXISTING_PG_MAJOR" = "15" ] && [ "$EFFECTIVE_PG_MAJOR" = "17" ]; then
+        echo -e "    ${GREEN}Run the one-shot data migration:${NC}"
+        echo "      sudo ./setup.sh --upgrade-pg17"
+        echo ""
+        echo "    See README → 'Postgres 17 Upgrade (existing installations)'."
+      else
+        echo "    Restore the matching image manually via docker-compose.override.yml"
+        echo "    or roll docker-compose.yml back to the matching tag."
+      fi
+      exit 1
+    fi
+  fi
 fi
 
 ask() {
@@ -607,6 +659,16 @@ if [ -n "$BRIDGE_ERRORS" ]; then
   echo "$BRIDGE_ERRORS" | while read line; do echo "    $line"; done
 fi
 echo "  ✅ MCP Bridge applied"
+
+echo "  Applying PG17 compat migration..."
+PG17_OUTPUT=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres \
+  -f supabase/migrations/007_pg17_compat.sql 2>&1)
+PG17_ERRORS=$(echo "$PG17_OUTPUT" | grep -i "error" | head -5)
+if [ -n "$PG17_ERRORS" ]; then
+  echo -e "  ${YELLOW}⚠️  PG17 compat migration warnings:${NC}"
+  echo "$PG17_ERRORS" | while read line; do echo "    $line"; done
+fi
+echo "  ✅ PG17 compat applied"
 
 # Reload PostgREST schema cache so new tables are immediately available via API
 docker kill --signal=SIGUSR1 $(docker ps -q --filter name=rest) 2>/dev/null || true

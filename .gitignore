@@ -12,3 +12,6 @@ docs/
 CLAUDE.local.md
 n8n-claw-templates/
 website/
+docker-compose.override.yml
+docker-compose.pg17.yml
+volumes/
