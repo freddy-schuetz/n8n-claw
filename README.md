@@ -1278,7 +1278,7 @@ n8n-claw ships with PostgreSQL 15 by default. Supabase's platform support for PG
 
 **Why this needs a special command:** Postgres major versions change the on-disk storage format. A simple image-tag swap would refuse to start with `FATAL: database files are incompatible with server`. The data has to be migrated to the new format.
 
-**Method:** `pg_dump` from PG15 → start a fresh PG17 cluster → restore the dump. We use this rather than in-place `pg_upgrade` because Supabase's official upgrade tool is tightly coupled to their full self-host stack (vault encryption, db-config volume) which n8n-claw doesn't ship. Dump/restore is the cleaner fit for our minimal stack and small DBs.
+**Method:** `pg_dump` from PG15 → fresh PG17 cluster (started standalone via `docker run` so the supabase/postgres image's baked-in init scripts can create the standard roles) → restore the dump → switch to compose with the PG17 image. We use this rather than in-place `pg_upgrade` because Supabase's official upgrade tool is tightly coupled to their full self-host stack (vault encryption, db-config volume) which n8n-claw doesn't ship.
 
 **Requirements:**
 - At least **3× current DB size + 2 GB** of free disk space (dump + backup + new cluster + buffer)
