@@ -35,6 +35,7 @@ https://github.com/user-attachments/assets/10b7b93d-f482-47c1-a144-80a1b9d1be16
 - [Switching from Telegram to WhatsApp](#switching-from-telegram-to-whatsapp)
 - [HTTPS Setup](#https-setup)
 - [Updating](#updating)
+- [Postgres 17 Upgrade](#postgres-17-upgrade-existing-installations)
 - [Troubleshooting](#troubleshooting)
 - [WorkflowBuilder with Claude Code](#optional-workflowbuilder-with-claude-code)
 - [Stack](#stack)
@@ -1261,6 +1262,59 @@ cd n8n-claw && ./setup.sh
 ```
 
 Use `--force` when you want to change your agent's name, language, communication style, or switch between proactive/reactive mode.
+
+</details>
+
+---
+
+<details>
+<summary>
+
+## Postgres 17 Upgrade (existing installations)
+
+</summary>
+
+n8n-claw ships with PostgreSQL 15 by default. Supabase's platform support for PG15 ends around May 2026; PostgreSQL community EOL for PG15 is November 2027. Most users have time, but the official Supabase self-hosted upgrade path to PG17 is now stable and you can do it on your own schedule.
+
+**Why this needs a special command:** Postgres major versions change the on-disk storage format. A simple image-tag swap would refuse to start with `FATAL: database files are incompatible with server`. You need `pg_upgrade` to convert the data directory once.
+
+**Requirements:**
+- At least **2× current DB size + 5 GB** of free disk space
+- VM-level snapshot (Hetzner / Vultr / etc.) recommended before running
+- ~2-5 minutes of downtime
+
+**Run the upgrade:**
+
+```bash
+sudo ./setup.sh --upgrade-pg17
+```
+
+The script:
+1. Pre-flight checks: PG version, disk space, incompatible extensions, replication slots
+2. Migrates the Docker named volume to a host bind mount (one-time)
+3. Asks you to confirm before any data is touched
+4. Downloads and runs Supabase's official `upgrade-pg17.sh` (pinned to a known-good commit)
+5. Writes a `docker-compose.override.yml` with the PG17 image tag
+6. Applies post-upgrade migration `007_pg17_compat.sql`
+7. Verifies with `SELECT version()`
+
+The original PG15 data directory is preserved as `./volumes/db/data.bak.pg15` for rollback. Delete it after 2-3 days of verified live operation:
+
+```bash
+sudo rm -rf ./volumes/db/data.bak.pg15
+```
+
+After the upgrade, normal updates (`./setup.sh`, `./setup.sh --force`, `git pull`) work as usual — the override file keeps PG17 active. The default image tag in `docker-compose.yml` will be flipped to PG17 in a later release; the override file will then become redundant but harmless.
+
+**Rollback** (only if needed before the backup is deleted):
+
+```bash
+docker compose down
+sudo rm -rf ./volumes/db/data
+sudo mv ./volumes/db/data.bak.pg15 ./volumes/db/data
+sudo rm -f docker-compose.override.yml
+docker compose up -d
+```
 
 </details>
 
