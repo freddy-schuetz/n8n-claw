@@ -5,6 +5,187 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [1.7.0] — 2026-05-10
+
+### Fitness Buddy — a personal trainer that owns the data layer, not just the chat
+
+n8n-claw gets a real fitness coach skill: **Fitness Buddy**. Not a chat persona that pretends to track meals — a 14-tool MCP skill backed by 9 dedicated PostgreSQL tables that owns every meal, workout, body measurement, hydration log, goal, and training session. Voice transcripts are parsed via OpenAI gpt-4o-mini structured-output, meal photos go through gpt-4o-mini Vision with strict JSON-Schema for items + grams + confidence, and the multi-week training plan generator picks exercises from real wger.de IDs (verified live: 845 exercises in the anonymous `/exerciseinfo/` endpoint, no auth, no LLM hallucination on the exercise list).
+
+Companion read-only skill **wger Exercises** ships alongside — a thin wrapper around wger.de's anonymous exercise database (search, get, list categories/muscles/equipment), useful standalone for browsing exercises without going through Buddy. Catalog grows to **70 skills** with a new `health` category.
+
+Three small but important infrastructure additions came out of building this:
+
+**The OpenAI key gets pre-seeded.** Most users already configured `OPENAI_API_KEY` during `setup.sh` (it powers Whisper voice transcription and the agent's photo analysis). Asking them to re-enter it via the credential form when installing fitness-buddy was annoying. setup.sh now writes `OPENAI_API_KEY` into `template_credentials` (template_id=`fitness-buddy`, cred_key=`openai_api_key`) automatically — installing the skill is a one-shot, no second key entry. Library Manager also got smarter: the "skip credential-form when cred is already stored" check used to fire only for OAuth shared credentials; it now fires for any credential, so any future skill that wants to reuse a setup-time key gets the same free pre-seed treatment.
+
+**A dedicated `fitness_routing` system-prompt section.** Initial test runs revealed the agent was happily generating fake plans — sometimes by improvising a 12-question onboarding questionnaire ("schmeiß alles auf einmal rein, ich sortier dat dann"), sometimes by delegating "create a training plan" to the research-expert sub-agent which then web-searched a generic plan and presented it as if it came from Buddy. Nothing landed in `fitness_plans`. The skill description alone, buried inside the long `mcp_instructions` skill listing, wasn't strong enough to compete with these alternative routes. Fix: a new top-level `agents.fitness_routing` system-prompt key seeded by setup.sh that explicitly forbids fabrication, forbids delegation to research-expert, forbids Web Search / HTTP fallbacks for fitness topics, and documents the empty-string-for-unknowns call convention (next paragraph).
+
+**The empty-string-for-unknowns call convention.** n8n's mcpTrigger node generates the external MCP tool schema with **all** non-hardcoded `value` fields marked as `required` in the `tools/list` response — regardless of whether the corresponding `schema` array entry has `"required": false`. The flag is silently ignored. So an agent calling `fitness_profile` with just `{sub_action: "setup"}` was rejected by mcp_client validation: *"missing required args [sex, birthdate, height_cm, …, notes]"*. Workaround in the tool description: instruct the agent to include every parameter on every call, using `""` for fields the user has not provided yet. The skill's setup logic already skipped empty strings (`input[f] !== ''`), so multi-turn onboarding works unchanged once the call validates. Documented as a quirk for future MCP skills — wger templates would have hit the same wall if they hadn't been removed (the `/public-templates/` endpoint turned out to be auth-required, not anonymous as the API root listing suggested).
+
+### Added
+
+- **Skill `fitness-buddy`** (14 tools, `health` category, OpenAI API Key required):
+  - `fitness_profile` — step-by-step conversational onboarding. The skill drives a multi-turn dialog: agent calls with `sub_action='setup'` and any fields the user has provided, skill saves partial progress to `fitness_profile`, replies with the next single question (one of: sex, birthdate, height_cm, weight_kg_baseline, activity_level, goal). Agent forwards the question verbatim to the user, gets the answer, calls again. Mifflin-St-Jeor BMR × Activity-Multiplier × Goal-Modifier → daily kcal target; protein 1.6–2.2 g/kg LBM (depending on goal), fat 0.9 g/kg, carbs from remainder; hydration 35 ml/kg.
+  - `log_meal` — five input modes: `from_text` ("100g Haferflocken, 200ml Milch, 1 Banane"), `from_voice` (Whisper transcript), `from_photo` (file_ref → gpt-4o-mini Vision with strict JSON-Schema for items + grams + per-item confidence + overall confidence), `from_barcode` (EAN), `from_memory` (one-click re-log of a saved meal_memory). Items resolve via OpenFoodFacts barcode lookup → OFF name search → LLM nutrition estimate fallback. Totals denormalized to columns for fast `SUM()`-by-day. Plus `edit`, `delete`, `clear_day`.
+  - `meal_memory` — save frequently eaten meals as named templates ("Mein Standard-Frühstück") for one-click re-logging. After each meal log, the skill checks if the same item-set was logged ≥3× in the last 14 days and suggests promotion to memory.
+  - `suggest_meal` — gpt-4o-mini takes today's remaining macro budget (calculated from `fitness_meals` SUM minus profile target), the user's allergies + dietary restrictions, plus their top-10 meal-memory favorites, and returns 3 suggestions with macros that fit. Prefers favorites when they match the budget.
+  - `log_workout` — auto-extracts `exercise_type | duration_min | intensity | distance_km | perceived_exertion` from text or voice transcript via gpt-4o-mini structured-output. Calorie burn estimated via MET formula (running medium = 9 MET, strength medium = 5 MET, etc.) × profile weight × duration. Auto-links to today's planned `fitness_plan_session` if one exists and is unmarked complete; auto-updates active `workout_frequency` goals.
+  - `log_body` — weight, body fat %, muscle mass, waist/chest/hip/thigh/arm circumferences. `trend` action computes change from first to last entry over a configurable window (default 30 days).
+  - `log_hydration` — water intake in ml. `today` shows progress vs target. `set_target` overrides the default 35ml/kg calculation.
+  - `goals` — set/list/archive. Goal types: `weight | body_fat | workout_frequency | distance | strength | habit | streak`. `current_value` auto-updates as relevant logs come in.
+  - `summary` — `today` / `week` / `month`. Aggregates kcal/macros/workouts/hydration vs targets, plus a streak count (consecutive days with at least one meal or workout, computed via reverse-walk over distinct dates).
+  - `training_plan` — `generate_custom` is the marquee feature: fetches 80 real exercises from wger.de's `/exerciseinfo/` endpoint (anonymous, free), packs them into the LLM prompt as `#1962 Step Jack [Cardio|none|Quads]`, instructs gpt-4o-mini to pick 4–6 exercises per session and reference them by `wger_id`, plus apply progressive overload across weeks and a deload in the final week if `weeks ≥ 4`. JSON-Schema strict-mode enforces structure; the result is decomposed into `fitness_plans` (one row, status=active, only one active plan per user enforced via partial unique index) and `fitness_plan_sessions` (one row per session, with `planned_for` date so "what's on today" is an indexed query). Plus `today`, `get_active`, `complete_session`, `adjust`. Verified live on 2026-05-10: every exercise in a generated plan resolved to a real wger ID.
+  - `reminders` — three presets (`morning_meal`, `evening_summary`, `weekly_report`) that insert into the existing `scheduled_actions` table. Heartbeat fires them; agent receives the instruction and routes back to the appropriate fitness-buddy tool. Custom recurring reminders work too via the main agent's existing `Reminder` workflow — both paths land in the same table, both fired by the same Heartbeat.
+  - `insights` — periodic pattern detection. `analyze` aggregates 30 days of meals/workouts/body data, sends it to gpt-4o-mini, gets back 3–5 actionable insights with importance scores, writes to `memory_long` with `category='insight'`, `entity_name='fitness'`. The main agent's existing v1.5.0 insight-loading machinery picks them up automatically — top-3 by importance get added to every system prompt.
+  - `export` — CSV export of meals/workouts/body/hydration over a date range. Writes the CSV through the File Bridge and returns a `file_ref` so the agent can send it as a Telegram document. Useful for doctor visits or own analyses.
+  - `nutrition_lookup` — standalone OpenFoodFacts barcode/name lookup without logging.
+
+- **Skill `wger-exercises`** (7 tools, `health` category, no credentials):
+  - `search_exercises` (filter by muscle ID / equipment ID / category / name / language / limit), `get_exercise` (full details by ID), `list_categories`, `list_muscles`, `list_equipment`, `list_public_templates`, `get_template_detail`. The last two return a clear "use generate_custom in fitness-buddy instead" message because wger's `/public-templates/` endpoint is auth-protected (HTTP 403 to anonymous callers — discovered live during integration testing) — kept as endpoints for future re-enabling if wger ever opens them.
+
+- **`supabase/migrations/008_fitness_schema.sql`** — 9 tables, idempotent, wired into the existing migration loop in `setup.sh` after `007_pg17_compat`. All tables scoped via `user_id text NOT NULL` (matching the `tasks`/`reminders` pattern, port-ready for multi-user dmo-claw later).
+  - `fitness_profile` (1 row per user, computed targets persist), `fitness_meals` (with denormalized totals + jsonb item-array), `fitness_meal_memory` (UNIQUE on `user_id, name`), `fitness_workouts`, `fitness_body` (time-series), `fitness_hydration`, `fitness_goals` (self-referencing parent_id for sub-goals), `fitness_plans` (partial unique index `WHERE status='active'` to enforce one active plan per user), `fitness_plan_sessions` (FK to plan, indexed on `(user_id, planned_for)` for the today-query). PostgREST `GRANT ALL` to anon/authenticated/service_role same as the rest of the schema. Final `NOTIFY pgrst, 'reload schema';` so the new tables are reachable via REST immediately.
+
+- **`agents.fitness_routing` system-prompt key** — seeded by `setup.sh` alongside the existing `mcp_instructions` / `tools` / `task_management` keys. Documents which user phrases route to which fitness-buddy tool with which `sub_action`, the empty-string-for-unknowns call convention, and the explicit forbidden alternatives (no expert_agent, no Web Search, no fabrication on skill error). Loaded as its own top-level `## fitness_routing` section in the system prompt of every agent turn.
+
+- **Pre-seeded `OPENAI_API_KEY` in `template_credentials`** — `setup.sh` now writes the key (when configured) under `template_id='fitness-buddy', cred_key='openai_api_key'` via `INSERT … ON CONFLICT DO UPDATE`. Idempotent across `--force` re-runs. Uses dollar-quoted SQL (`$$…$$`) so arbitrary key characters can't break the statement. Silent-fails so a missing table or psql error does not abort setup.
+
+### Changed
+
+- **`workflows/mcp-library-manager.json`**: the credential-skip check during `install_template` no longer fires only for OAuth `shared_id` credentials. It fires for any credential — first checking `template_credentials` for `(storeUnder, cred_key)` where `storeUnder = shared_id || templateId`, and skipping the credential-form-link generation if a row already exists. Picks up pre-seeded keys (the new fitness-buddy use case) and any future skill that wants the same pattern. Side effect: re-installing a skill after `remove_template` reuses the previously stored credential rather than re-prompting (consistent with current OAuth behavior; `add_credential` action remains the explicit override path).
+- **`workflows/mcp-library-manager.json`**: `CDN_BASE` pinned to `freddy-schuetz/n8n-claw-templates@2ca2ee5` — the templates-repo commit shipping fitness-buddy + wger-exercises + the OpenAI strict-mode schema fix.
+- **`setup.sh`**: applies migration 008 after the existing migrations; pre-seeds `OPENAI_API_KEY` into `template_credentials` for fitness-buddy; seeds the `fitness_routing` agents key alongside the existing keys.
+- **`CLAUDE.md`**: 9 new `fitness_*` tables documented in the database-schema table; migrations list extended.
+
+### Fixed
+
+These came up during build/live-test of fitness-buddy and are bundled in this release:
+
+- **OpenAI structured-output schemas were rejected with HTTP 400 in nested objects.** Strict mode requires every property to appear in the `required` array — making a property semantically optional is done via a `[type, "null"]` union *plus* the property still being required (the LLM is then allowed to return `null`). The first-cut training_plan schema had `wger_id`, `weight_kg`, `rest_s`, `notes` typed as `[type, "null"]` but missing from `required`, and the same latent bug was in the log_workout schema (`distance_km`, `perceived_exertion`, `notes`). Fix: every property is now in `required` across all structured-output calls in the skill (training_plan, log_meal photo, log_meal text, log_workout, suggest_meal, insights, llmEstimateNutrition).
+- **OpenAI errors were being swallowed as "Request failed with status code 400".** The `helpers.httpRequest` axios error didn't propagate the response body, so the actual OpenAI validation message ("Invalid schema for response_format … 'extracted': Every property in object schema must be in the required array") was lost. Fix: `openaiChat()` wraps the call in try/catch, extracts `err.response?.body` or `err.body`, and re-throws with the actual error in the message. Debugging structured-output regressions now surfaces the real reason instead of an axios placeholder.
+- **The agent fabricated training plans / onboarding questionnaires on the first integration tests.** Two distinct routes: (a) the agent saw "Profil anlegen" and improvised a 12-field questionnaire instead of calling `mcp_client → fitness-buddy`, (b) the agent saw "training plan" and delegated to the research-expert sub-agent which web-searched a generic plan. Neither path stored anything in `fitness_plans` or `fitness_meals`. Fix: the new `fitness_routing` system-prompt section explicitly forbids both — agent must call mcp_client → fitness-buddy for any fitness topic; on skill error it must surface the error verbatim and never fabricate or fall back to research-expert / Web Search / HTTP. Verified post-fix: the 4-Week Recomp Training Plan generated on 2026-05-10 stored 12 sessions in `fitness_plan_sessions`, every exercise carried a real `wger_id` (#1963 Slow Squat, #980 Commando Pull-ups, #805 Tricep Pushdown on Cable, #923 Lying Dumbbell Row SS Seated Shrug — all verified against wger.de's live API).
+
+### What you can ask Buddy
+
+After installing the skill, you can talk to it in natural language via Telegram. The agent routes everything via mcp_client → fitness-buddy. Examples:
+
+**Profile setup (step-by-step, Buddy drives):**
+```
+ich möchte mein Profil anlegen
+```
+Buddy asks one thing at a time (sex → birthdate → height → weight → activity level → goal), then shows the computed daily kcal/macro/hydration targets.
+
+**Logging meals — three input modes:**
+```
+Frühstück: 100g Haferflocken, 200ml Milch, 1 Banane
+```
+```
+[send a photo of your plate + caption "Mittag"]
+```
+```
+[voice message: "Abendessen war Hähnchenbrust mit Reis und Brokkoli"]
+```
+Buddy resolves nutrition via OpenFoodFacts (barcode → name → LLM-fallback for generics), shows per-item kcal/macros + total, asks for confirmation when vision confidence is low.
+
+**Logging workouts:**
+```
+[voice: "Bin grad 30 Minuten joggen gewesen, mittlere Intensität"]
+```
+```
+30 Min Krafttraining im Gym, hoch intensiv
+```
+Buddy auto-extracts type/duration/intensity, computes calorie burn via MET formula × your weight, links to today's planned session if one exists.
+
+**Body & hydration:**
+```
+Log mein Gewicht: 78 kg, Bauchumfang 84 cm
+```
+```
+500 ml Wasser getrunken
+```
+```
+Wasser-Tagesziel auf 3000 ml setzen
+```
+
+**Training plan (real wger exercises, no LLM hallucinations):**
+```
+Erstell mir einen 4-Wochen-Plan für Muskelaufbau, 3x pro Woche, im Fitnessstudio
+```
+Buddy generates a periodized plan with progressive overload + deload week, picks exercises from the live wger.de database, stores 12 sessions with real exercise IDs.
+
+```
+Was steht heute auf dem Trainingsplan?
+```
+Returns today's planned session with sets × reps and rest periods.
+
+**Coaching & summaries:**
+```
+Wie liege ich heute?
+```
+Today's kcal/macros/workouts/water vs targets + active streak.
+
+```
+Schlag mir was zum Abendessen vor das zu meinen Restmakros passt
+```
+Three meal options matching remaining macro budget, respecting allergies + dietary restrictions, preferring your meal-memory favorites.
+
+**Goals:**
+```
+Setz mir ein Ziel: 4 Workouts pro Woche
+```
+```
+Welche Ziele hab ich?
+```
+
+**Recurring reminders (custom or preset):**
+```
+Setup mir alle Buddy-Reminders
+```
+Three presets: morning meal nudge (08:00), daily summary (21:00), weekly report (Sun 19:00).
+
+```
+Buddy, geh täglich um 9:30 mit mir den Tagesplan durch — Training, Kalorien, was steht heute an
+```
+Custom free-form recurring action via the main agent's Reminder workflow — same `scheduled_actions` infrastructure, fired by the same Heartbeat.
+
+**Standalone food lookups:**
+```
+Such mir die Nährwerte von Nutella
+```
+OpenFoodFacts result with kcal/macros per 100g, no logging.
+
+**Export:**
+```
+Exportier meine Mahlzeiten der letzten 7 Tage als CSV
+```
+CSV uploaded to File Bridge, Telegram document arrives.
+
+**After 14+ days of logs — pattern detection:**
+```
+Buddy, was fällt dir bei meinen Daten auf?
+```
+LLM analyzes recent log patterns, writes 3–5 insights to `memory_long` with `category='insight'` — the main agent's v1.5.0 insight-recall picks them up automatically and uses them to shape future responses (silently, no quoting back).
+
+### Upgrade from v1.6.0
+
+```bash
+cd n8n-claw && git pull && ./setup.sh --force
+```
+
+Migration 008_fitness_schema.sql applies idempotently (9 new `fitness_*` tables). No conflicts with existing data. The `fitness_routing` agents key is seeded automatically. If `OPENAI_API_KEY` is configured in your `.env`, it is pre-seeded into `template_credentials` for fitness-buddy.
+
+Then in Telegram:
+```
+Installiere fitness-buddy
+```
+No credential-form prompt if your OpenAI key is pre-seeded. Optional companion:
+```
+Installiere wger-exercises
+```
+
+For users who do **not** want the fitness skills: nothing changes — the 9 `fitness_*` tables stay empty (negligible storage), the `fitness_routing` system-prompt key is benign when the skill isn't installed (the routing rule will trigger an informative error if you do try to log a meal without installing).
+
+---
+
 ## [1.6.0] — 2026-04-30
 
 ### PostgreSQL 17 by default — and a one-shot migration for existing installs
