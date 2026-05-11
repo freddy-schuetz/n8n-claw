@@ -5,6 +5,84 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [1.8.0] — 2026-05-11
+
+### Apify Actors — 6,000+ web scrapers via a single MCP bridge
+
+n8n-claw gets dynamic, instance-wide access to the entire Apify Store: **Apify Actors**, a bridge skill that wraps `https://mcp.apify.com` and exposes 8 meta-tools to the agent. The agent uses `search-actors` to discover scrapers by platform keyword, `fetch-actor-details` to read each Actor's live JSON input schema, and `call-actor` to execute any of the 6,000+ Actors in the Store — Google Maps places, Instagram posts, Trustpilot reviews, Booking.com hotels, LinkedIn profiles, Amazon bestsellers, you name it — without writing a single line of per-Actor glue code. End-to-end validated on 2026-05-11 against a real Apify token (execution 103944: agent → search-actors → fetch-actor-details → call-actor → parsed dataset → 4 real Instagram comments formatted as a markdown table for Telegram, 101 seconds for the whole chain).
+
+This is the **first production bearer-auth MCP bridge** in n8n-claw. The previous (and only) bridge skill, `deepwiki`, ran with `auth_type: "none"`. The bearer-auth code path — `mcp_registry.auth_type` + `auth_token` written by the credential form, then read by the agent's inline `MCP Client` toolCode and injected as `Authorization: Bearer <token>` on every JSON-RPC call to the upstream MCP server — was wired since migration `006_mcp_bridge` in v1.3.0 but had never been exercised end-to-end. Apify exercises it now. No code patches were needed in `mcp-client.json`, `mcp-library-manager.json`, or `n8n-claw-agent.json` to ship this skill: the infrastructure was already there.
+
+One subtle gotcha showed up after the first install and got fixed in a v1.0.1 bump of the manifest description: Claude, given the choice between the proper discovery chain (`search-actors` → `fetch-actor-details` → `call-actor`) and the pre-bundled `apify--rag-web-browser` meta-tool, sometimes reached for `rag-web-browser` because it's "just one call". The same regression had to be patched in the OpenWebUI-side Apify adapter. Fix on this side: a stronger workflow nudge in the manifest description that the Library Manager pulls into `mcp_registry.description` and the system prompt builder shows to the LLM on every turn — `apify--rag-web-browser` is now explicitly framed as a last-resort fallback, and the description routes plain webpage reads to Crawl4AI (Web Reader) and web search to SearXNG instead of paying Apify credits for either.
+
+The catalog grows to **71 skills**.
+
+### Added
+
+- **Skill `apify`** (bridge, `utilities` category, Apify API Token required, 8 tools):
+  - `search-actors` — discover Actors in the Apify Store by broad keyword (e.g. `instagram`, `google maps`, `tiktok`). Returns ranked Actor cards with name, description, pricing, usage stats, success rate, and rating. The mandatory first step in the discovery chain — the agent picks the best-rated specialised scraper for the platform instead of guessing Actor names.
+  - `fetch-actor-details` — get full metadata for a specific Actor (`username/name` format): JSON input schema, README summary, pricing breakdown, output schema, deprecation status. Always called before `call-actor` so the agent reads the live input spec instead of inventing it.
+  - `call-actor` — run any Actor synchronously or asynchronously. Sync returns `datasetId` plus preview items inline; async returns a `runId` for long-running scrapes. Supports `callOptions.memory` (128 MB – 32 GB) and `callOptions.timeout` for resource control. For MCP-server Actors uses the `actorName:toolName` invocation format.
+  - `get-actor-run` — check status and metadata of a specific Actor run by `runId` (timestamps, stats, dataset reference) — used to poll async runs before fetching output.
+  - `get-actor-output` — fetch dataset items from a completed Actor run. Supports `fields` (comma-separated, with dot notation like `crawl.statusCode`) and `offset` + `limit` for pagination, so the agent can pull large scrapes piece by piece without blowing the LLM context.
+  - `search-apify-docs` — full-text search over Apify Platform / Crawlee-JS / Crawlee-Python documentation (`docSource` parameter switches between them). Returns matching URLs + content snippets.
+  - `fetch-apify-docs` — fetch the full markdown content of a documentation page by URL.
+  - `apify--rag-web-browser` — pre-bundled web browser Actor for one-shot Google-search-and-scrape. **Framed as a last-resort fallback** in the manifest description; the agent is steered toward Crawl4AI (Web Reader) for plain page reads and SearXNG (Web Search) for general queries instead.
+
+- **`n8n-claw-templates/templates/apify/manifest.json`** — bridge manifest at the templates repo:
+  - `type: "bridge"`, `bridge.mcp_url: "https://mcp.apify.com"`, `bridge.auth_type: "bearer"`, `bridge.auth_token_required: true`. The Library Manager's bridge-install branch detects `manifest.type === 'bridge'`, skips workflow import entirely, inserts one row into `mcp_registry` with `template_type='bridge'`, and generates a one-time `credential_tokens` link for the secure HTTPS credential form.
+  - `credentials_required[].key = "auth_token"` is the magic key the credential form mirrors into `mcp_registry.auth_token` after submission (the only credential key that gets dual-written into both `template_credentials` and the registry's auth column). Reuse on reinstall: if `template_credentials` already has the token from a prior install, the new registry row picks it up without re-prompting.
+
+- **`n8n-claw-templates/templates/index.json` + `README.md`** — catalog entry for `apify` under `utilities`, total skill count bumped from 70 → 71, Utilities section now lists Apify Actors as the lead row.
+
+### Changed
+
+- **`workflows/mcp-library-manager.json`**: `CDN_BASE` pinned to `freddy-schuetz/n8n-claw-templates@b522ae6` — the templates-repo commit shipping the apify skill plus the tool-selection nudge. Bumped in two steps during the v1.8.0 release: first to `@e164a65` (initial skill) in commit `e85528c`, then to `@b522ae6` (description fix) in commit `0d8c06a`.
+
+- **Apify skill description (templates v1.0.0 → v1.0.1)** — strengthened the workflow guidance in the manifest description so the agent prefers the discovery chain over the `apify--rag-web-browser` shortcut. The Library Manager re-syncs this field from the manifest only on fresh install / reinstall (not via update_template — there is no update_template action today), so already-installed instances need a `remove_template` + `install_template` round-trip to pick up the new description. Existing token is reused via the `template_credentials` lookup in the install path, so no re-entry needed.
+
+### Validated
+
+- **Apify MCP endpoint** — `https://mcp.apify.com` (no `/mcp` suffix), Streamable HTTP transport (MCP protocol `2024-11-05`), SSE-formatted JSON-RPC responses (`event: message` / `id: …` / `data: {…}` framing). Bearer auth via `Authorization` header confirmed working with a real token. Tool names use dashes, not snake_case (`search-actors`, `fetch-actor-details`, `call-actor`, `apify--rag-web-browser`) — passed through verbatim by the agent's MCP Client toolCode without rewriting.
+- **End-to-end production test** — execution `103944` on 2026-05-11: user message "Suche mir die letzten 10 Kommentare von dem Instagram Kanal ep_reisen, kein Zwischenstatus" → agent discovered the Instagram Actor via `search-actors`, inspected its input schema via `fetch-actor-details`, ran it via `call-actor`, parsed the returned dataset, formatted 4 real comments (with usernames, text, dates, like counts) as a Telegram-ready markdown table. Total runtime 101 seconds, 21 nodes green, no errors. First successful invocation of a bearer-auth bridge in n8n-claw.
+- **Existing bearer-auth path through `n8n-claw-agent.json`** — the inline `MCP Client` toolCode (added in v1.3.0 but never used with a non-`none` auth_type until now) reads `auth_type` + `auth_token` from `mcp_registry` by the matching `mcp_url`, prepends `Bearer ` for `auth_type='bearer'` or uses the raw token verbatim for `auth_type='header'`, and injects the `Authorization` header into all three JSON-RPC roundtrips (initialize, notifications/initialized, tools/list for schema validation, tools/call). No edits required. The same toolCode also pre-fetches the upstream `tools/list` schema on each call and rewrites missing-required-args errors into schema-hint responses the LLM can self-correct from — which is why the agent recovers gracefully when it guesses `query` instead of `keywords` for `search-actors`.
+
+### What you can ask Apify
+
+After installing the skill, the agent routes Apify requests via `mcp_client`. The expected workflow is `search-actors` → `fetch-actor-details` → `call-actor`. Examples in natural language as you'd actually type them:
+
+**Sales — on-the-fly lead enrichment, single contact:**
+```
+Just met Max from XY GmbH at the fair — get me his LinkedIn
+```
+Agent finds the profile, calls a LinkedIn Actor (e.g. `dev_fusion/Linkedin-Profile-Scraper`, ~$0.01 per profile), returns email + role + recent posts.
+
+**Hospitality — competitor / partner hotel reviews:**
+```
+What are guests saying about Hotel Goldener Adler on Booking lately?
+```
+Agent picks `voyager/booking-reviews-scraper` (~$0.05 per 1,000 reviews), pulls the last batch, summarises rating trend + top complaints + top praise.
+
+**Reputation — competitor monitoring on Trustpilot:**
+```
+What's the latest Trustpilot buzz about competitor X?
+```
+Agent uses `memo23/trustpilot-scraper-ppe` ($0.75 per 1,000 reviews, 4.86★), extracts the recent rating + recurring themes + red flags.
+
+**E-commerce — daily bestseller intel:**
+```
+What's hot on Amazon DE Sports today?
+```
+Agent calls `junglee/amazon-bestsellers` (4.97★ in the Store), returns today's top-100 with prices and biggest movers. Schedulable via the existing `scheduled_actions` table for a fresh-every-morning digest.
+
+### Known limitations
+
+- **Single instance-wide token.** The Apify token lives in `mcp_registry.auth_token`, one row per installed bridge skill. There is no per-user-credential mechanism in `template_credentials` yet, so on multi-user instances (dmo-claw) every chat user consumes credits from the same Apify account and shares the same view of the data. A per-user-credential schema extension is plausible (`template_credentials.user_id` nullable + bridge-bearer-lookup priority "user-scoped first, then global") but out of scope for v1.8.0.
+- **Manifest description is set once at install time.** Description text changes pushed to the templates repo (like the v1.0.0 → v1.0.1 tool-selection-nudge fix in this release) require a `remove_template` + `install_template` cycle on existing instances to land in `mcp_registry.description`. The Library Manager has no `update_template` action today. Token is preserved across the cycle.
+- **`apify--rag-web-browser` is still in the tool list.** Hiding it via the manifest description (last-resort framing) is a behavioural nudge, not enforcement. Apify's MCP server exposes it unconditionally on `tools/list`, and the agent's MCP Client toolCode passes the name through verbatim if Claude does call it. The framing usually steers the agent away, but does not guarantee it.
+
+---
+
 ## [1.7.0] — 2026-05-10
 
 ### Fitness Buddy — a personal trainer that owns the data layer, not just the chat
