@@ -161,6 +161,30 @@ services:
     networks:
       - n8n-claw-net
 
+  # ── Browser Bridge (Browser Use REST wrapper for agentic browser actions) ──
+  browser-bridge:
+    build: ./browser-bridge
+    container_name: n8n-claw-browser-bridge
+    restart: unless-stopped
+    expose:
+      - "3400"
+    environment:
+      - SUPABASE_URL=http://kong:8000
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - BROWSER_BRIDGE_MAX_SESSIONS=${BROWSER_BRIDGE_MAX_SESSIONS:-5}
+      - BROWSER_BRIDGE_IDLE_TIMEOUT_S=${BROWSER_BRIDGE_IDLE_TIMEOUT_S:-1800}
+    mem_limit: 3g
+    networks:
+      - n8n-claw-net
+
   # ── Discord Bridge (Gateway → webhook, optional — enabled via COMPOSE_PROFILES=discord) ──
   discord-bridge:
     build: ./discord-bridge
