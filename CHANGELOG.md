@@ -5,6 +5,37 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [1.9.1] — 2026-05-31
+
+### Fixed: n8n 2.21+ startup crash from `agents` table name collision (Issue #35)
+
+n8n 2.21.4 introduced a built-in *Agents* feature. Its boot migration `CreateAgentTables1783000000000` creates a `public.agents` table and then indexes its `projectId` column. n8n-claw already owned a `public.agents` table (persona and tool config, the source of the system prompt) in the same Postgres database, so n8n's `createTable('agents')` no-op'd, the follow-up `createIndex('agents', ['projectId'])` failed with `column "projectId" does not exist`, and n8n crash-looped on every boot without reaching "ready". The whole 2.21.x and 2.22.x lines are affected; the last n8n that booted cleanly against an existing n8n-claw DB was 2.20.12. Because `docker-compose.yml` tracks `n8nio/n8n:latest`, any `docker compose pull` after 2.21.4 shipped took the instance down. The failed migration rolls back inside its transaction, so no data is lost, but every restart re-attempts and re-fails.
+
+Reported by an external user, who worked around it locally by pinning to 2.20.12 and then closed the issue as `NOT_PLANNED` ("handling this on our side"). The collision was real and still shipped to everyone, so it is fixed here properly rather than left to a version pin: the n8n-claw config/persona table is renamed from `agents` to `claw_agents`, freeing the `agents` name for n8n's own core table. `docker-compose.yml` stays on `:latest`, since the two no longer overlap.
+
+### Added
+
+- **`supabase/migrations/009_agents_rename.sql`** — idempotent, data-preserving rename. It only ever touches a `public.agents` table that has a `key` column, which uniquely identifies n8n-claw's table and never matches n8n's core `agents` (no `key` column), so it is a no-op if n8n already created its own. Two paths, because `setup.sh` applies `001_schema.sql` (which creates `claw_agents`) before `009`: if `claw_agents` does not exist yet it renames in place (carrying all rows); if `claw_agents` already exists (the empty shell `001` creates on an upgrade) it copies the legacy rows over with `INSERT ... SELECT ... ON CONFLICT (key) DO NOTHING` and then drops the legacy `agents` table. Safe on fresh installs, re-runs, and crash-looping instances alike.
+
+### Changed
+
+- **`supabase/migrations/001_schema.sql`** and **`002_seed.sql`** — table, sequence (`claw_agents_id_seq`), constraints (`claw_agents_pkey`, `claw_agents_key_key`), GRANTs, and both seed `INSERT`s renamed to `claw_agents`.
+- **`setup.sh`** — applies `009_agents_rename.sql` right after the schema migrations and before the n8n-API wait, so a crash-looping instance frees the `agents` name and self-heals on the next restart within the same run; both persona/config seed `INSERT`s now target `claw_agents`.
+- **Workflows** — raw-SQL reads in `n8n-claw-agent.json` (`Load Agents Config`) and `sub-agent-runner.json` (persona load) switched to `FROM claw_agents`; PostgREST URLs `/rest/v1/agents` switched to `/rest/v1/claw_agents` in `mcp-builder.json`, `mcp-library-manager.json`, and `agent-library-manager.json` (9 references). Persona keys (`persona:{id}`) are unchanged; only the table name moved.
+- **`README.md`** — new Troubleshooting entry for the boot failure (`column "projectId" does not exist` / `CreateAgentTables1783000000000`) with the one-shot fix `git pull && ./setup.sh --force`.
+- **`CLAUDE.md`** — DB schema table, "soul + claw_agents are the system prompt" section, Expert Agents section, and migrations listing updated to `claw_agents`, with an Issue #35 note explaining the collision.
+
+### Validated
+
+- Live verification on the n8n-claw VPS after `setup.sh --force`: `public.agents` is now n8n's core table (`id, name, projectId, ...`, 0 rows), `public.claw_agents` holds the 19 app rows (config + personas, nothing lost). n8n boots without the `CreateAgentTables` failure. Agent execution `136652` loaded 14 config rows from `claw_agents` plus the soul rows (`name: Greg`) and replied on Telegram, both recent agent executions finished with status `success`.
+
+### Upgrade notes
+
+- **Existing installs:** `git pull && ./setup.sh --force`. Migration `009` preserves all personas and config; n8n then creates its own clean `agents` table. No data loss, no manual steps.
+- **Breaking only for custom code:** any user-added workflow or external script that queries the `agents` table or `/rest/v1/agents` directly must switch to `claw_agents`. All shipped workflows are already updated.
+
+---
+
 ## [1.9.0] — 2026-05-11
 
 ### Browser Use — agentic browser actions, interactive 2FA, no TOTP plumbing required
