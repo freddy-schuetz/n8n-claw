@@ -206,6 +206,9 @@ services:
     image: unclecode/crawl4ai:latest
     container_name: n8n-claw-crawl4ai
     restart: unless-stopped
+    environment:
+      # >= 0.9.0 binds loopback-only without a token; with it, binds 0.0.0.0.
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN}
     shm_size: "2g"
     deploy:
       resources:

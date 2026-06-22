@@ -213,6 +213,14 @@ if [ -z "$WEBHOOK_SECRET" ]; then
   set_env "WEBHOOK_SECRET" "$WEBHOOK_SECRET"
 fi
 
+# Crawl4AI API token — crawl4ai >= 0.9.0 binds loopback-only without a token,
+# so the Web Reader (in another container) cannot reach it. Setting a token makes
+# it bind 0.0.0.0; the Web Reader sends it as Bearer auth.
+if [ -z "$CRAWL4AI_API_TOKEN" ]; then
+  CRAWL4AI_API_TOKEN=$(openssl rand -hex 24)
+  set_env "CRAWL4AI_API_TOKEN" "$CRAWL4AI_API_TOKEN"
+fi
+
 # SearXNG secret key (only patch if placeholder still present)
 if grep -q '{{SEARXNG_SECRET_KEY}}' searxng/settings.yml 2>/dev/null; then
   SEARXNG_SECRET=$(openssl rand -hex 32)
@@ -1097,6 +1105,7 @@ for wf in data.get('data', []):
       -e "s|{{TELEGRAM_CHAT_ID}}|${TELEGRAM_CHAT_ID}|g" \
       -e "s|{{CREDENTIAL_FORM_WEBHOOK_ID}}|${CREDENTIAL_FORM_WEBHOOK_ID}|g" \
       -e "s|{{WEBHOOK_SECRET}}|${WEBHOOK_SECRET}|g" \
+      -e "s|{{CRAWL4AI_API_TOKEN}}|${CRAWL4AI_API_TOKEN}|g" \
       -e "s|{{PAPERCLIP_INTERNAL_URL}}|${PAPERCLIP_INTERNAL_URL}|g" \
       -e "s|{{PAPERCLIP_AGENT_KEY}}|${PAPERCLIP_AGENT_KEY}|g" \
       -e "s|{{TELEGRAM_BOT_TOKEN}}|${TELEGRAM_BOT_TOKEN}|g" \
