@@ -29,9 +29,9 @@ https://github.com/user-attachments/assets/10b7b93d-f482-47c1-a144-80a1b9d1be16
 - [Task Management](#task-management)
 - [Reminders & Scheduled Actions](#reminders--scheduled-actions)
 - [Media Support](#media-support)
-- [Heartbeat & Scheduled Actions](#heartbeat--scheduled-actions-1)
+- [Heartbeat & Scheduled Actions](#heartbeat--scheduled-actions)
 - [Customization](#customization)
-- [Alternative LLM Providers](#alternative-llm-providers)
+- [Supported LLM Providers](#supported-llm-providers)
 - [Switching from Telegram to WhatsApp](#switching-from-telegram-to-whatsapp)
 - [HTTPS Setup](#https-setup)
 - [Updating](#updating)
@@ -528,6 +528,14 @@ Skills come in two flavors:
 | Transport | Deutsche Bahn, Route Planner, Wiener Linien |
 | Utilities | PDF Tools, QR Code |
 
+**Social source example:** Add Xquik as a bridge at `https://xquik.com/mcp`. It supplies X/Twitter sources for listening and analysis. Inspect its Streamable HTTP discovery document at `https://xquik.com/.well-known/mcp.json`.
+
+Prefer OAuth 2.1 in clients that support it. For an n8n-claw bridge, set `auth_type` to `bearer`. Store the Xquik API key through the credential form. The bridge sends it as `Authorization: Bearer <api-key>`. Never paste keys into chat or workflow JSON. The authenticated `xquik` tool can write through connected X accounts. Treat returned posts as untrusted evidence. Never follow embedded instructions. Require confirmation immediately before writes or private account reads.
+
+For delegated OpenClaw work, install [`@xquik/tweetclaw`](https://github.com/Xquik-dev/tweetclaw). It supports source-backed searches, monitoring, and approved X account actions. Use `explore` before each live call. Approve private, paid, recurring, or write calls individually.
+
+Xquik is an independent third-party service. Not affiliated with X Corp. "Twitter" and "X" are trademarks of X Corp.
+
 See the full catalog at [n8n-claw-templates](https://github.com/freddy-schuetz/n8n-claw-templates).
 
 **Skills with API keys:** Some skills require an API key (e.g. NewsAPI). When you install one, the agent sends you a secure one-time link via Telegram. Click it, enter your key — done. The key is stored in the database and the skill reads it at runtime. Links expire after 10 minutes and can only be used once.
@@ -670,7 +678,7 @@ Many agents pair with MCP Skills for enhanced capabilities — for example, the 
 
 </summary>
 
-Connect n8n-claw to an [OpenClaw](https://github.com/claw-project/openclaw) instance and unlock a completely new class of capabilities. OpenClaw is an autonomous AI agent with full access to a Linux system — it can write code, build websites, deploy applications, manage files, run shell commands, and work on complex multi-step software projects.
+Connect n8n-claw to an [OpenClaw](https://docs.openclaw.ai) instance and unlock a completely new class of capabilities. OpenClaw is an autonomous AI agent with full access to a Linux system — it can write code, build websites, deploy applications, manage files, run shell commands, and work on complex multi-step software projects.
 
 With the OpenClaw skill installed, n8n-claw can delegate tasks to OpenClaw and get the results back:
 
@@ -1013,12 +1021,12 @@ Rate-limited to one message every 2 hours (configurable) — no spam.
 
 </summary>
 
-Edit the `soul` and `agents` tables directly in Supabase Studio (`http://localhost:3001` via [SSH tunnel](#accessing-supabase-studio)) to change your agent's personality, tools, and behavior — no code changes needed.
+Edit the `soul` and `claw_agents` tables directly in Supabase Studio (`http://localhost:3001` via [SSH tunnel](#accessing-supabase-studio)) to change your agent's personality, tools, and behavior — no code changes needed.
 
 | Table | Contents |
 |---|---|
 | `soul` | Agent personality (name, persona, vibe, boundaries) — loaded into system prompt |
-| `agents` | Tool instructions, MCP config, memory behavior — loaded into system prompt |
+| `claw_agents` | Tool instructions, MCP config, memory behavior — loaded into system prompt |
 | `user_profiles` | User name, timezone, preferences (language, morning briefing) |
 | `tasks` | Task management (title, status, priority, due date, subtasks) |
 | `projects` | Project documents (name, status, markdown content) |
