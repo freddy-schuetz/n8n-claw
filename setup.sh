@@ -1433,7 +1433,7 @@ with open(f, 'w') as fh:
     json.dump(wf, fh, indent=2, ensure_ascii=False)
 " "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}" "${LLM_CRED_ID:-}" "${LLM_CRED_TYPE:-}"
 done
-IMPORT_ORDER="error-notification mcp-client reminder-factory reminder-runner mcp-weather-example workflow-builder mcp-builder mcp-library-manager agent-library-manager sub-agent-runner browser-use credential-form oauth-callback memory-consolidation background-checker heartbeat webhook-adapter agent-status n8n-claw-agent"
+IMPORT_ORDER="error-notification mcp-client reminder-factory reminder-runner mcp-weather-example workflow-builder mcp-builder mcp-library-manager agent-library-manager sub-agent-runner browser-use credential-form oauth-callback memory-consolidation background-checker heartbeat webhook-adapter agent-status agent-history n8n-claw-agent"
 
 # n8n Public API settings whitelist — the PUT endpoint rejects any settings
 # field not in its OpenAPI schema (additionalProperties: false), even though
@@ -1812,7 +1812,7 @@ if [ -n "$REMINDER_RUNNER_ID" ]; then
 fi
 
 # Activate sub-workflows (required since n8n 2.x)
-for SUB_WF in mcp-client mcp-builder mcp-library-manager agent-library-manager sub-agent-runner workflow-builder reminder-factory project-manager background-checker browser-use agent-status; do
+for SUB_WF in mcp-client mcp-builder mcp-library-manager agent-library-manager sub-agent-runner workflow-builder reminder-factory project-manager background-checker browser-use agent-status agent-history; do
   SUB_WF_ID=${WF_IDS[$SUB_WF]}
   if [ -n "$SUB_WF_ID" ]; then
     curl -s -X POST "${N8N_BASE}/api/v1/workflows/${SUB_WF_ID}/activate" \

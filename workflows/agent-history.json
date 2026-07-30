@@ -1,0 +1,60 @@
+{
+  "name": "Agent History",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "agent-history",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "history-webhook",
+      "name": "History Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Webhook Auth"
+        }
+      },
+      "webhookId": "webhook-agent-history"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Liefert Gespraechs-Historie einer Session (paginiert, neueste zuerst geholt,\n// chronologisch zurueckgegeben). Polling-frei: wird nur beim Laden/Blaettern gerufen.\nconst q = $('History Webhook').first().json.query || {};\nconst sid = q.session_id || '';\nconst before = parseInt(q.before_id || '0', 10) || 0;\nconst limit = Math.min(parseInt(q.limit || '30', 10) || 30, 100);\nif (!sid) return [{ json: { messages: [] } }];\nlet url = '{{SUPABASE_URL}}/rest/v1/conversations?session_id=eq.' + encodeURIComponent(sid)\n  + '&select=id,role,content,created_at&order=id.desc&limit=' + limit;\nif (before > 0) url += '&id=lt.' + before;\nconst rows = await helpers.httpRequest({ method: 'GET', url, headers: { 'apikey': '{{SUPABASE_SERVICE_KEY}}' } });\nconst list = Array.isArray(rows) ? rows.reverse() : [];\nreturn [{ json: { messages: list, oldest_id: list.length ? list[0].id : null } }];"
+      },
+      "id": "read-history",
+      "name": "Read History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "History Webhook": {
+      "main": [
+        [
+          {
+            "node": "Read History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all"
+  }
+}
