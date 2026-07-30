@@ -739,17 +739,6 @@
           }
         ]
       ]
-    },
-    "Status Webhook": {
-      "main": [
-        [
-          {
-            "node": "Read Status",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
     }
   },
   "nodes": [
@@ -2115,43 +2104,6 @@
       "position": [
         220,
         -520
-      ]
-    },
-    {
-      "parameters": {
-        "httpMethod": "GET",
-        "path": "agent-status",
-        "authentication": "headerAuth",
-        "responseMode": "lastNode",
-        "options": {}
-      },
-      "id": "status-webhook",
-      "name": "Status Webhook",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [
-        0,
-        -680
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Webhook Auth"
-        }
-      },
-      "webhookId": "webhook-agent-status"
-    },
-    {
-      "parameters": {
-        "jsCode": "// Liefert Status-Events einer Session (Polling-Endpoint fuer Web-Clients)\nconst q = $('Status Webhook').first().json.query || {};\nconst sid = q.session_id || '';\nconst after = parseInt(q.after || '0', 10) || 0;\nif (!sid) return [{ json: { events: [] } }];\nconst rows = await helpers.httpRequest({\n  method: 'GET',\n  url: '{{SUPABASE_URL}}/rest/v1/agent_status?session_id=eq.' + encodeURIComponent(sid) + '&id=gt.' + after + '&select=id,message,created_at&order=id.asc&limit=50',\n  headers: { 'apikey': '{{SUPABASE_SERVICE_KEY}}' }\n});\n// Selbstreinigung: Events aelter als 1 Stunde entsorgen (best effort)\ntry {\n  await helpers.httpRequest({\n    method: 'DELETE',\n    url: '{{SUPABASE_URL}}/rest/v1/agent_status?created_at=lt.' + encodeURIComponent(new Date(Date.now() - 3600000).toISOString()),\n    headers: { 'apikey': '{{SUPABASE_SERVICE_KEY}}' }\n  });\n} catch (_e) {}\nreturn [{ json: { events: Array.isArray(rows) ? rows : [] } }];"
-      },
-      "id": "read-status",
-      "name": "Read Status",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        220,
-        -680
       ]
     }
   ]
