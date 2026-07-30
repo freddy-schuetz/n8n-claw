@@ -10,6 +10,19 @@ search:
     - html
     - json
   default_lang: "de"
+  # SearXNG sperrt eine Engine nach einem Fehler fuer eine feste Zeit. Die
+  # Defaults sind fuer Server-IPs viel zu lang: ein einziger Cloudflare-CAPTCHA
+  # sperrt die Engine 15 Tage (1296000 s), reCAPTCHA 7 Tage. Auf einem VPS
+  # laufen genau diese Sperren staendig auf, die Websuche faellt dann tagelang
+  # aus und erholt sich nur sporadisch. Eine Stunde reicht voellig: das sind
+  # 24 Versuche pro Tag, also weit entfernt von aggressivem Nachfassen.
+  suspended_times:
+    SearxEngineAccessDenied: 300
+    SearxEngineCaptcha: 1800
+    SearxEngineTooManyRequests: 180
+    cf_SearxEngineCaptcha: 3600
+    cf_SearxEngineAccessDenied: 3600
+    recaptcha_SearxEngineCaptcha: 3600
 
 engines:
   - name: google
