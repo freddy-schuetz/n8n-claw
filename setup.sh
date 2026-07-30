@@ -705,6 +705,29 @@ if [ -n "$RENAME_ERRORS" ]; then
 fi
 echo "  ✅ agents->claw_agents rename applied"
 
+# Entity hybrid search (must run AFTER 004 — 004 recreates the old, defective
+# search_entities() on every run and would otherwise win).
+echo "  Applying entity hybrid search migration..."
+ENTSEARCH_OUTPUT=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres \
+  -f supabase/migrations/010_entity_hybrid_search.sql 2>&1)
+ENTSEARCH_ERRORS=$(echo "$ENTSEARCH_OUTPUT" | grep -i "error" | head -5)
+if [ -n "$ENTSEARCH_ERRORS" ]; then
+  echo -e "  ${YELLOW}⚠️  Entity search migration warnings:${NC}"
+  echo "$ENTSEARCH_ERRORS" | while read line; do echo "    $line"; done
+fi
+echo "  ✅ Entity hybrid search applied"
+
+# Tool audit log (append-only record of every MCP tool call)
+echo "  Applying tool audit log migration..."
+AUDIT_OUTPUT=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres \
+  -f supabase/migrations/011_tool_audit_log.sql 2>&1)
+AUDIT_ERRORS=$(echo "$AUDIT_OUTPUT" | grep -i "error" | head -5)
+if [ -n "$AUDIT_ERRORS" ]; then
+  echo -e "  ${YELLOW}⚠️  Audit log migration warnings:${NC}"
+  echo "$AUDIT_ERRORS" | while read line; do echo "    $line"; done
+fi
+echo "  ✅ Tool audit log applied"
+
 # Reload PostgREST schema cache so new tables are immediately available via API
 docker kill --signal=SIGUSR1 $(docker ps -q --filter name=rest) 2>/dev/null || true
 
