@@ -22,12 +22,15 @@ log = logging.getLogger(__name__)
 
 MAX_SESSIONS = int(os.environ.get("BROWSER_BRIDGE_MAX_SESSIONS", "5"))
 IDLE_TIMEOUT_S = int(os.environ.get("BROWSER_BRIDGE_IDLE_TIMEOUT_S", "1800"))
+# Chromium start/connect budget. Counts against the task's own timeout_s, because
+# Browser Use starts the browser lazily inside agent.run().
+BROWSER_START_TIMEOUT_MS = int(os.environ.get("BROWSER_BRIDGE_START_TIMEOUT_MS", "120000"))
 
 BROWSER_PROFILE_KWARGS = dict(
     headless=True,
     chromium_sandbox=False,
     args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-    timeout=120000,
+    timeout=BROWSER_START_TIMEOUT_MS,
     keep_alive=True,
 )
 
@@ -118,20 +121,22 @@ class SessionPool:
 
     async def _evict_idle(self):
         now = time.time()
-        stale_keys = []
+        stale = []
         async with self._lock:
-            for key, entry in self._entries.items():
+            for key, entry in list(self._entries.items()):
                 if now - entry.last_used_at > IDLE_TIMEOUT_S:
-                    stale_keys.append(key)
-            for key in stale_keys:
+                    stale.append((key, entry))
+            for key, _entry in stale:
                 self._entries.pop(key, None)
-        for key in stale_keys:
+        # Stop outside the lock: session.stop() talks to Chromium and can block.
+        # Without this the entry vanished from the bookkeeping while the browser
+        # process kept running — every idle eviction leaked ~0.5-1 GB.
+        for key, entry in stale:
             log.info("Evicting idle session %s (idle > %ds)", key, IDLE_TIMEOUT_S)
             try:
-                # session already popped, but stop is async — call best-effort here
-                pass
-            except Exception:
-                pass
+                await entry.session.stop()
+            except Exception as e:
+                log.warning("Error stopping idle session %s: %s", key, e)
 
     async def _evict_lru_locked(self):
         if not self._entries:
