@@ -1329,3 +1329,19 @@ GRANT USAGE ON SCHEMA public TO anon, service_role;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON SEQUENCE public.template_credentials_id_seq TO anon, authenticated, service_role;
+
+-- ============================================================
+-- Agent status events (live progress for web/streaming clients)
+-- Written by tool nodes during agent runs, polled via /webhook/agent-status,
+-- self-purged (rows older than 1h) by the read endpoint. Additive feature:
+-- instances without a web client simply never write or read it.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS agent_status (
+  id BIGSERIAL PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  message TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_status_session_id ON agent_status(session_id, id);
+GRANT ALL ON TABLE public.agent_status TO anon, authenticated, service_role;
+GRANT ALL ON SEQUENCE public.agent_status_id_seq TO anon, authenticated, service_role;
