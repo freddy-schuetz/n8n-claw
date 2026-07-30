@@ -24,3 +24,10 @@ engines:
   - name: wikipedia
     engine: wikipedia
     disabled: false
+  # Bing ist in SearXNG per Default deaktiviert, blockiert aber als einzige der
+  # grossen Engines keine Rechenzentrums-IPs. Ohne sie faellt die Websuche auf
+  # einem VPS komplett aus, sobald Google/DDG/Brave/Startpage die Server-IP mit
+  # CAPTCHA bzw. 429 sperren (SLT-VPS 30.07.2026: 5 von 5 Engines tot, Bing ok).
+  - name: bing
+    engine: bing
+    disabled: false
