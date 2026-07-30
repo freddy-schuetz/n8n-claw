@@ -87,6 +87,9 @@ CREATE INDEX IF NOT EXISTS idx_memory_long_search_vector
 DROP FUNCTION IF EXISTS public.hybrid_search_memory(
   public.vector, text, integer, text, text, text[], boolean, integer
 );
+DROP FUNCTION IF EXISTS public.hybrid_search_memory(
+  public.vector, text, integer, text, text, text[], boolean, integer, text
+);
 
 CREATE FUNCTION public.hybrid_search_memory(
   query_embedding public.vector DEFAULT NULL,
@@ -96,7 +99,8 @@ CREATE FUNCTION public.hybrid_search_memory(
   filter_entity text DEFAULT NULL,
   filter_tags text[] DEFAULT NULL,
   use_time_decay boolean DEFAULT true,
-  rrf_k integer DEFAULT 60
+  rrf_k integer DEFAULT 60,
+  requesting_user text DEFAULT NULL
 ) RETURNS TABLE(
   id integer,
   content text,
@@ -124,6 +128,9 @@ BEGIN
       AND (filter_entity   IS NULL OR ml.entity_name ILIKE filter_entity)
       AND (filter_tags     IS NULL OR ml.tags @> filter_tags)
       AND (ml.expires_at   IS NULL OR ml.expires_at > now())
+      -- Governance: personal entries only for their owner
+      AND (COALESCE(ml.scope, 'team') = 'team'
+           OR (requesting_user IS NOT NULL AND ml.owner_user_id = requesting_user))
   ),
 
   -- Branch 1: Semantic (pgvector cosine distance, top 50)
@@ -210,17 +217,17 @@ END;
 $$;
 
 ALTER FUNCTION public.hybrid_search_memory(
-  public.vector, text, integer, text, text, text[], boolean, integer
+  public.vector, text, integer, text, text, text[], boolean, integer, text
 ) OWNER TO postgres;
 
 GRANT ALL ON FUNCTION public.hybrid_search_memory(
-  public.vector, text, integer, text, text, text[], boolean, integer
+  public.vector, text, integer, text, text, text[], boolean, integer, text
 ) TO anon;
 
 GRANT ALL ON FUNCTION public.hybrid_search_memory(
-  public.vector, text, integer, text, text, text[], boolean, integer
+  public.vector, text, integer, text, text, text[], boolean, integer, text
 ) TO authenticated;
 
 GRANT ALL ON FUNCTION public.hybrid_search_memory(
-  public.vector, text, integer, text, text, text[], boolean, integer
+  public.vector, text, integer, text, text, text[], boolean, integer, text
 ) TO service_role;

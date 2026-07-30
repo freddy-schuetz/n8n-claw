@@ -2289,6 +2289,10 @@ INSERT INTO public.soul (key, content) VALUES
   ('boundaries', 'Keep private data private. Ask before external actions.'),
   ('communication', 'You communicate via Telegram. Reply directly.')
 ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;
+
+INSERT INTO public.claw_agents (key, content) VALUES
+  ('memory_admins', 'telegram:${TELEGRAM_CHAT_ID}')
+ON CONFLICT (key) DO NOTHING;
 """
 
 # Always update user_profiles and mcp_registry (uses existing values when personality was skipped)

@@ -179,7 +179,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const input = $('Parse Input').first().json;\nconst persona = $('Load Persona').first()?.json;\n\nconst agentId = input.agent || 'unknown';\nconst task = input.task || '';\nconst context = input.context || '';\n\n// Fallback if persona not found\nif (!persona || !persona.content) {\n  return [{\n    json: {\n      systemPrompt: `You are a helpful expert. Complete the following task thoroughly and return a structured result. Respond in the same language as the task.`,\n      userMessage: task\n    }\n  }];\n}\n\nconst systemPrompt = `# EXPERT AGENT: ${agentId}\n\n${persona.content}\n\n# INSTRUCTIONS\nYou have been activated as an expert agent for a specific task.\nComplete the task thoroughly and return a structured result.\nRespond in the same language as the task.\nUse available tools (HTTP Request, Web Search, MCP Client) when they help accomplish the task.\n\n${context ? '# CONVERSATION CONTEXT\\n' + context : ''}`;\n\nreturn [{\n  json: {\n    systemPrompt,\n    userMessage: task\n  }\n}];"
+        "jsCode": "const input = $('Parse Input').first().json;\nconst persona = $('Load Persona').first()?.json;\n\nconst agentId = input.agent || 'unknown';\nconst task = input.task || '';\nconst context = input.context || '';\n\n// Fallback if persona not found\nif (!persona || !persona.content) {\n  return [{\n    json: {\n      systemPrompt: `You are a helpful expert. Complete the following task thoroughly and return a structured result. Respond in the same language as the task.`,\n      userMessage: task\n    }\n  }];\n}\n\nconst systemPrompt = `# EXPERT AGENT: ${agentId}\n\n${persona.content}\n\n# INSTRUCTIONS\nYou have been activated as an expert agent for a specific task.\nComplete the task thoroughly and return a structured result.\nRespond in the same language as the task.\nUse available tools (HTTP Request, Web Search, MCP Client) when they help accomplish the task.\n\n# TOOL BUDGET (critical)\n- You have a budget of about 10 tool calls. Plan them deliberately.\n- At the latest after the 10th tool call: STOP calling tools and synthesize the best possible answer from what you have gathered.\n- If a tool call fails or returns nothing twice in a row: do NOT keep retrying variations — answer immediately from the material you have and name the gap transparently.\n- An honest partial answer is ALWAYS better than no answer.\n\n${context ? '# CONVERSATION CONTEXT\\n' + context : ''}`;\n\nreturn [{\n  json: {\n    systemPrompt,\n    userMessage: task\n  }\n}];"
       }
     },
     {
@@ -196,12 +196,14 @@
         "text": "={{ $json.userMessage }}",
         "options": {
           "systemMessage": "={{ $json.systemPrompt }}",
-          "maxIterations": 25
+          "maxIterations": 20,
+          "returnIntermediateSteps": true
         }
       },
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 5000
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
     },
     {
       "id": "sub-claude",
@@ -301,7 +303,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const agentOutput = $('Sub-Agent').first().json.output || 'No result from expert agent.';\nconst agentId = $('Parse Input').first().json.agent || 'unknown';\n\nreturn [{\n  json: {\n    result: agentOutput,\n    expert: agentId\n  }\n}];"
+        "jsCode": "const agentId = $('Parse Input').first().json.agent || 'unknown';\nconst item = $('Sub-Agent').first().json || {};\nlet agentOutput = item.output || '';\n\n// Teilergebnis-Bergung: bei Fehler/Iterationslimit aus den Zwischenschritten retten,\n// statt die gesammelte Arbeit wegzuwerfen (n8n verwirft bei Max-Iterations sonst alles)\nif (!agentOutput && (item.error || item.intermediateSteps)) {\n  const steps = Array.isArray(item.intermediateSteps) ? item.intermediateSteps : [];\n  const found = steps\n    .map(s => (s && s.observation ? String(s.observation) : ''))\n    .filter(o => o && !/^(Error|Fehler)[:\\s]/i.test(o))\n    .slice(-6)\n    .map(o => o.substring(0, 600));\n  if (found.length) {\n    agentOutput = 'HINWEIS: Die Experten-Recherche wurde vorzeitig beendet ('\n      + (item.error ? String(item.error).substring(0, 120) : 'Limit erreicht')\n      + '). Gesammelte Zwischenergebnisse:\\n\\n' + found.join('\\n\\n---\\n\\n');\n  } else {\n    agentOutput = 'Der Experte konnte die Aufgabe nicht abschliessen ('\n      + (item.error ? String(item.error).substring(0, 150) : 'kein Ergebnis')\n      + '). Bitte selbst recherchieren oder die Aufgabe eingrenzen.';\n  }\n}\n\n// Output-Guard: als Text geleakte Tool-Aufrufe nie als Ergebnis weiterreichen\nif (/^\\s*Calling\\s+\\S+\\s+with\\s+input/i.test(agentOutput)) {\n  agentOutput = 'Der Experte hat kein verwertbares Ergebnis geliefert (interner Formatfehler). Bitte selbst recherchieren.';\n}\n\nif (!agentOutput) agentOutput = 'No result from expert agent.';\nreturn [{ json: { result: agentOutput, expert: agentId } }];"
       }
     }
   ]
