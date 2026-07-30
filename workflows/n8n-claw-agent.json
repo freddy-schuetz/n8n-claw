@@ -1871,7 +1871,7 @@
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{ $json._streamSource }}",
+                    "leftValue": "={{ $('Merge Input').first().json._streamSource === true }}",
                     "rightValue": true,
                     "operator": {
                       "type": "boolean",
