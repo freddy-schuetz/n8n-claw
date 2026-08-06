@@ -1,0 +1,350 @@
+{
+  "format": "n8n-claw-template",
+  "format_version": 1,
+  "sub": {
+    "name": "MCP Sub: Microsoft Mail",
+    "settings": {
+      "executionOrder": "v1",
+      "callerPolicy": "workflowsFromSameOwner"
+    },
+    "nodes": [
+      {
+        "id": "sub-trigger",
+        "name": "Execute Workflow Trigger",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "sub-logic",
+        "name": "Microsoft Mail Logic",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "jsCode": "// Microsoft Postfach, persoenlich je Person. Lesen und Entwuerfe, kein Senden:\n// die Anwendung fordert Mail.Send gar nicht erst an, ein Sendeversuch scheitert\n// deshalb bei Microsoft und nicht erst an einer Selbstbeschraenkung hier.\n\nconst input = { ...$input.first().json };\nfor (const _k of Object.keys(input)) { if (input[_k] === '' || input[_k] === null) delete input[_k]; }\nconst action = input.action || '';\nconst caller = String(input.caller || '').trim();\n\nconst SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst pg = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json' };\nconst GRAPH = 'https://graph.microsoft.com/v1.0';\nfunction fail(m) { return [{ json: { error: m } }]; }\n\nconst credRows = await helpers.httpRequest({\n  method: 'GET', url: SUPABASE_URL + '/rest/v1/template_credentials?template_id=eq.microsoft&select=cred_key,cred_value',\n  headers: pg, json: true });\nconst cred = {}; for (const c of (credRows || [])) cred[c.cred_key] = c.cred_value;\nfor (const need of ['tenant_id','client_id','client_secret','token_key','redirect_uri'])\n  if (!cred[need]) return fail('Microsoft ist nicht eingerichtet, es fehlt: ' + need);\nconst connectUrl = String(cred.redirect_uri).replace('ms-oauth-callback', 'ms-connect');\n\nif (!caller) return fail('Kein Nutzerbezug vorhanden. Postfachzugriff geht nur im Namen einer angemeldeten Person.');\n\nlet personKey = caller;\nif (!caller.startsWith('entra:')) {\n  try {\n    const map = await helpers.httpRequest({ method: 'GET',\n      url: SUPABASE_URL + '/rest/v1/user_identity_map?legacy_key=eq.' + encodeURIComponent(caller) + '&select=entra_key',\n      headers: pg, json: true });\n    if (map && map[0] && map[0].entra_key) personKey = map[0].entra_key;\n  } catch (e) {}\n}\n\nasync function accessToken() {\n  const rows = await helpers.httpRequest({ method: 'POST', url: SUPABASE_URL + '/rest/v1/rpc/get_user_token',\n    headers: pg, json: true,\n    body: JSON.stringify({ p_user_key: personKey, p_provider: 'microsoft', p_key: cred.token_key }) });\n  const row = rows && rows[0];\n  if (!row) return { error: 'Fuer diese Person ist noch kein Microsoft-Konto verbunden. Einmalig verbinden: ' + connectUrl + '?user=' + encodeURIComponent(caller) };\n  if (row.status !== 'connected') return { error: 'Die Verbindung ist unterbrochen (' + row.status + '). Bitte neu verbinden: ' + connectUrl + '?user=' + encodeURIComponent(caller) };\n  if (new Date(row.expires_at).getTime() - Date.now() > 5 * 60 * 1000) return { token: row.access_token };\n  if (!row.refresh_token) return { error: 'Der Zugang ist abgelaufen. Bitte neu verbinden: ' + connectUrl + '?user=' + encodeURIComponent(caller) };\n  let tok;\n  try {\n    tok = await helpers.httpRequest({ method: 'POST',\n      url: 'https://login.microsoftonline.com/' + encodeURIComponent(cred.tenant_id) + '/oauth2/v2.0/token',\n      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, json: true,\n      body: 'client_id=' + encodeURIComponent(cred.client_id) + '&client_secret=' + encodeURIComponent(cred.client_secret) +\n            '&refresh_token=' + encodeURIComponent(row.refresh_token) + '&grant_type=refresh_token&scope=' + encodeURIComponent(row.scopes || '') });\n  } catch (e) {\n    const b = (e && e.response && e.response.body) ? JSON.stringify(e.response.body) : String(e.message || e);\n    const code = (b.match(/AADSTS\\d+/) || ['unbekannt'])[0];\n    await helpers.httpRequest({ method: 'POST', url: SUPABASE_URL + '/rest/v1/rpc/mark_user_token', headers: pg,\n      body: JSON.stringify({ p_user_key: personKey, p_provider: 'microsoft', p_status: 'reconnect_required', p_detail: code }) });\n    return { error: 'Die Verbindung ist beendet (' + code + '). Bitte neu verbinden: ' + connectUrl + '?user=' + encodeURIComponent(caller) };\n  }\n  await helpers.httpRequest({ method: 'POST', url: SUPABASE_URL + '/rest/v1/rpc/upsert_user_token', headers: pg,\n    body: JSON.stringify({ p_user_key: personKey, p_provider: 'microsoft', p_key: cred.token_key,\n      p_access_token: tok.access_token, p_refresh_token: tok.refresh_token || '',\n      p_expires_at: new Date(Date.now() + ((tok.expires_in || 3600) * 1000)).toISOString(),\n      p_scopes: tok.scope || row.scopes || null, p_account_id: row.account_id || '' }) });\n  return { token: tok.access_token };\n}\n\nconst t = await accessToken();\nif (t.error) return fail(t.error);\nconst H = { Authorization: 'Bearer ' + t.token, 'Content-Type': 'application/json' };\n\nfunction errText(e) {\n  const b = e && e.response && e.response.body;\n  if (b && b.error && b.error.message) return b.error.message;\n  return String((e && e.message) || e);\n}\nfunction kurz(s, n) { s = String(s || '').replace(/\\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '...' : s; }\nfunction zeile(m) {\n  const von = ((m.from || {}).emailAddress || {}).name || ((m.from || {}).emailAddress || {}).address || '?';\n  return '- ' + String(m.receivedDateTime || '').replace('T', ' ').slice(0, 16) + '  von ' + von +\n         (m.isRead === false ? '  [ungelesen]' : '') + '\\n  ' + kurz(m.subject, 90) +\n         '\\n  ' + kurz(m.bodyPreview, 140) + '\\n  (id: ' + m.id + ')';\n}\n\ntry {\n  if (action === 'search_messages') {\n    const limit = Math.min(parseInt(input.limit || '10', 10) || 10, 25);\n    let url = GRAPH + '/me/messages?$top=' + limit + '&$select=id,subject,from,receivedDateTime,bodyPreview,isRead';\n    if (input.query) url += '&$search=' + encodeURIComponent('\"' + String(input.query).replace(/\"/g, '') + '\"');\n    else url += '&$orderby=receivedDateTime desc';\n    if (String(input.unread_only || '').toLowerCase() === 'true') url += (input.query ? '' : '&$filter=isRead eq false');\n    const r = await helpers.httpRequest({ method: 'GET', url, headers: Object.assign({ ConsistencyLevel: 'eventual' }, H), json: true });\n    const ms = (r && r.value) || [];\n    if (!ms.length) return [{ json: { result: 'Keine passenden Nachrichten gefunden.' } }];\n    return [{ json: { result: ms.length + ' Nachrichten:\\n' + ms.map(zeile).join('\\n') } }];\n  }\n\n  if (action === 'get_message') {\n    if (!input.message_id) return fail('Parameter \"message_id\" ist noetig, die id steht bei jeder Nachricht aus search_messages.');\n    const m = await helpers.httpRequest({ method: 'GET',\n      url: GRAPH + '/me/messages/' + encodeURIComponent(input.message_id) + '?$select=subject,from,toRecipients,receivedDateTime,body',\n      headers: H, json: true });\n    const txt = String((m.body || {}).content || '').replace(/<style[\\s\\S]*?<\\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');\n    return [{ json: { result: 'Von: ' + (((m.from || {}).emailAddress || {}).address || '?') +\n      '\\nAn: ' + ((m.toRecipients || []).map(x => (x.emailAddress || {}).address).join(', ') || '?') +\n      '\\nDatum: ' + String(m.receivedDateTime || '').replace('T', ' ').slice(0, 16) +\n      '\\nBetreff: ' + (m.subject || '') + '\\n\\n' + kurz(txt, 4000) } }];\n  }\n\n  if (action === 'create_draft') {\n    if (!input.subject || !input.body) return fail('Fuer einen Entwurf brauche ich \"subject\" und \"body\".');\n    const an = String(input.to || '').split(/[,;\\s]+/).filter(x => x.includes('@'));\n    const d = { subject: input.subject, body: { contentType: 'text', content: input.body } };\n    if (an.length) d.toRecipients = an.map(a => ({ emailAddress: { address: a } }));\n    const r = await helpers.httpRequest({ method: 'POST', url: GRAPH + '/me/messages', headers: H, json: true, body: JSON.stringify(d) });\n    return [{ json: { result: 'Entwurf liegt im Postfach: \"' + r.subject + '\"' + (an.length ? ' an ' + an.join(', ') : ' ohne Empfaenger') +\n      '. Er wird NICHT verschickt, das muss die Person selbst tun. (id: ' + r.id + ')' } }];\n  }\n\n  if (action === 'reply_draft') {\n    if (!input.message_id || !input.body) return fail('Fuer eine Antwort brauche ich \"message_id\" und \"body\".');\n    const r = await helpers.httpRequest({ method: 'POST',\n      url: GRAPH + '/me/messages/' + encodeURIComponent(input.message_id) + '/createReply', headers: H, json: true, body: '{}' });\n    await helpers.httpRequest({ method: 'PATCH', url: GRAPH + '/me/messages/' + encodeURIComponent(r.id),\n      headers: H, json: true, body: JSON.stringify({ body: { contentType: 'text', content: input.body } }) });\n    return [{ json: { result: 'Antwortentwurf liegt im Postfach und wartet auf das Absenden durch die Person. (id: ' + r.id + ')' } }];\n  }\n\n  return fail('Unbekannte Aktion \"' + action + '\". Moeglich: search_messages, get_message, create_draft, reply_draft.');\n} catch (e) {\n  return fail('Microsoft Postfach (' + action + '): ' + errText(e));\n}"
+        }
+      }
+    ],
+    "connections": {
+      "Execute Workflow Trigger": {
+        "main": [
+          [
+            {
+              "node": "Microsoft Mail Logic",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "server": {
+    "name": "MCP Server: Microsoft Mail",
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "nodes": [
+      {
+        "id": "mcp-trigger",
+        "name": "MCP Server Trigger",
+        "type": "@n8n/n8n-nodes-langchain.mcpTrigger",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "path": "microsoft-mail"
+        }
+      },
+      {
+        "id": "t-search",
+        "name": "search_messages",
+        "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+        "typeVersion": 2.2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "name": "search_messages",
+          "description": "Postfach der fragenden Person durchsuchen oder die neuesten Nachrichten holen.",
+          "workflowId": {
+            "__rl": true,
+            "value": "REPLACE_SUB_WORKFLOW_ID",
+            "mode": "id"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "action": "search_messages",
+              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "query": "={{ $fromAI('query', 'Suchbegriff, optional. Ohne Angabe die neuesten Nachrichten', 'string') }}",
+              "limit": "={{ $fromAI('limit', 'Hoechstzahl, Vorgabe 10', 'string') }}",
+              "unread_only": "={{ $fromAI('unread_only', 'true, wenn nur Ungelesenes', 'string') }}"
+            },
+            "schema": [
+              {
+                "id": "action",
+                "displayName": "action",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "caller",
+                "displayName": "caller",
+                "type": "string",
+                "required": false
+              },
+              {
+                "id": "query",
+                "displayName": "query",
+                "type": "string",
+                "required": false
+              },
+              {
+                "id": "limit",
+                "displayName": "limit",
+                "type": "string",
+                "required": false
+              },
+              {
+                "id": "unread_only",
+                "displayName": "unread_only",
+                "type": "string",
+                "required": false
+              }
+            ],
+            "attemptToConvertTypes": true,
+            "convertFieldsToString": true
+          }
+        }
+      },
+      {
+        "id": "t-get",
+        "name": "get_message",
+        "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+        "typeVersion": 2.2,
+        "position": [
+          220,
+          160
+        ],
+        "parameters": {
+          "name": "get_message",
+          "description": "Eine einzelne Nachricht vollstaendig lesen.",
+          "workflowId": {
+            "__rl": true,
+            "value": "REPLACE_SUB_WORKFLOW_ID",
+            "mode": "id"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "action": "get_message",
+              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "message_id": "={{ $fromAI('message_id', 'id aus search_messages', 'string') }}"
+            },
+            "schema": [
+              {
+                "id": "action",
+                "displayName": "action",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "caller",
+                "displayName": "caller",
+                "type": "string",
+                "required": false
+              },
+              {
+                "id": "message_id",
+                "displayName": "message_id",
+                "type": "string",
+                "required": true
+              }
+            ],
+            "attemptToConvertTypes": true,
+            "convertFieldsToString": true
+          }
+        }
+      },
+      {
+        "id": "t-draft",
+        "name": "create_draft",
+        "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+        "typeVersion": 2.2,
+        "position": [
+          220,
+          320
+        ],
+        "parameters": {
+          "name": "create_draft",
+          "description": "Einen Mail-Entwurf im Postfach der Person anlegen. Wird NICHT verschickt.",
+          "workflowId": {
+            "__rl": true,
+            "value": "REPLACE_SUB_WORKFLOW_ID",
+            "mode": "id"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "action": "create_draft",
+              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "subject": "={{ $fromAI('subject', 'Betreff', 'string') }}",
+              "body": "={{ $fromAI('body', 'Text der Mail', 'string') }}",
+              "to": "={{ $fromAI('to', 'Empfaenger, mit Komma getrennt, optional', 'string') }}"
+            },
+            "schema": [
+              {
+                "id": "action",
+                "displayName": "action",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "caller",
+                "displayName": "caller",
+                "type": "string",
+                "required": false
+              },
+              {
+                "id": "subject",
+                "displayName": "subject",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "body",
+                "displayName": "body",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "to",
+                "displayName": "to",
+                "type": "string",
+                "required": false
+              }
+            ],
+            "attemptToConvertTypes": true,
+            "convertFieldsToString": true
+          }
+        }
+      },
+      {
+        "id": "t-reply",
+        "name": "reply_draft",
+        "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+        "typeVersion": 2.2,
+        "position": [
+          220,
+          480
+        ],
+        "parameters": {
+          "name": "reply_draft",
+          "description": "Einen Antwortentwurf auf eine vorhandene Nachricht anlegen. Wird NICHT verschickt.",
+          "workflowId": {
+            "__rl": true,
+            "value": "REPLACE_SUB_WORKFLOW_ID",
+            "mode": "id"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "action": "reply_draft",
+              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "message_id": "={{ $fromAI('message_id', 'id der Nachricht, auf die geantwortet wird', 'string') }}",
+              "body": "={{ $fromAI('body', 'Text der Antwort', 'string') }}"
+            },
+            "schema": [
+              {
+                "id": "action",
+                "displayName": "action",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "caller",
+                "displayName": "caller",
+                "type": "string",
+                "required": false
+              },
+              {
+                "id": "message_id",
+                "displayName": "message_id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "body",
+                "displayName": "body",
+                "type": "string",
+                "required": true
+              }
+            ],
+            "attemptToConvertTypes": true,
+            "convertFieldsToString": true
+          }
+        }
+      }
+    ],
+    "connections": {
+      "search_messages": {
+        "ai_tool": [
+          [
+            {
+              "node": "MCP Server Trigger",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "get_message": {
+        "ai_tool": [
+          [
+            {
+              "node": "MCP Server Trigger",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "create_draft": {
+        "ai_tool": [
+          [
+            {
+              "node": "MCP Server Trigger",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "reply_draft": {
+        "ai_tool": [
+          [
+            {
+              "node": "MCP Server Trigger",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  }
+}
