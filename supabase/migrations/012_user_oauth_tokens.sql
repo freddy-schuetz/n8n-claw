@@ -9,11 +9,19 @@
 --
 -- Two design decisions worth knowing before changing anything here:
 --
--- 1. Tokens are encrypted at rest with pgcrypto, and the KEY IS NOT IN THE
---    DATABASE. It is passed per call by n8n, which is why the only supported
---    access path is the two RPCs below. A plain PostgREST insert cannot encrypt,
---    so writing to the table directly is not supported. Reading the columns
---    without the key returns ciphertext.
+-- 1. Tokens are encrypted at rest with pgcrypto. The key is passed per call by
+--    n8n, which is why the only supported access path is the RPCs below: a plain
+--    PostgREST insert cannot encrypt, and reading the columns without the key
+--    returns ciphertext.
+--    Be honest about what this buys: the table is revoked for anon and
+--    authenticated, so the tokens are unreachable through the data API even with
+--    a valid application key, and a dump of the application tables alone is
+--    useless. It does NOT protect against someone with full database access,
+--    because n8n stores its workflows in the same database and the key travels
+--    with them. The clean fix would be an environment variable, but n8n denies
+--    Code nodes access to the environment, and lifting that block would let a
+--    prompt-injected agent read every secret of the installation. A small
+--    key-holding sidecar is the production answer; this is the test phase.
 --
 -- 2. The user key is the Entra object id in the form entra:<oid>, never an email
 --    address or a login name. Microsoft is explicit that mail and UPN are mutable
