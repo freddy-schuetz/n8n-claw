@@ -3,7 +3,6 @@
   "manifestVersion": "1.19",
   "version": "1.0.0",
   "id": "8f202d23-41c2-4643-934b-3bff45226070",
-  "packageName": "at.sltg.rupert.dev",
   "developer": {
     "name": "Friedemann Schuetz",
     "websiteUrl": "https://agent.sltg.at",
