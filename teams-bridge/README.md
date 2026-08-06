@@ -44,3 +44,26 @@ Endpunkt oeffnen.
   anderer Personen bleiben stehen.
 - **Wiederholung** bei den Statuscodes 429, 412, 502 und 504, mit wachsendem
   Abstand und Zufallsanteil.
+
+## Start
+
+```bash
+docker run -d --name teams-bridge --restart unless-stopped   -p 127.0.0.1:3401:3401   -p 172.17.0.1:3401:3401   -e MS_APP_ID=... -e MS_APP_PASSWORD=... -e MS_TENANT_ID=...   -e N8N_TEAMS_WEBHOOK=http://172.17.0.1:5678/webhook/teams-in   -e BRIDGE_SECRET=...   teams-bridge:dev
+```
+
+**Beide Veroeffentlichungen werden gebraucht**, und das kostet sonst eine
+Stunde Fehlersuche: `127.0.0.1` fuer nginx, das auf dem Host laeuft, und
+`172.17.0.1` fuer n8n, das im Container laeuft und den Host nur ueber die
+Docker-Bruecke erreicht. Fehlt die zweite, kommt jede Nachricht sauber an,
+die Antwort laeuft aber in den Zeitablauf.
+
+nginx braucht dazu einen eigenen Ort:
+
+```nginx
+location /teams/ {
+    proxy_pass http://127.0.0.1:3401/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_read_timeout 60s;
+}
+```
