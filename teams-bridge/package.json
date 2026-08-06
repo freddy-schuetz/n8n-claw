@@ -1,0 +1,13 @@
+{
+  "name": "teams-bridge",
+  "version": "1.0.0",
+  "description": "Prueft eingehende Microsoft-Teams-Nachrichten, reicht sie an n8n weiter und schickt Antworten zurueck.",
+  "main": "src/index.js",
+  "scripts": { "start": "node src/index.js" },
+  "dependencies": {
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.1.0"
+  },
+  "license": "MIT"
+}
