@@ -21,6 +21,7 @@ function makeHelpers(schema, sink) {
     async httpRequest(opts) {
       const url = String(opts.url || '');
       const body = String(opts.body || '');
+      if (url.includes('tool_audit_log')) { sink.audit = JSON.parse(body); return {}; }
       if (url.startsWith('http://stub.local')) return url.includes('mcp_registry') ? [] : {};
       if (body.includes('"initialize"')) {
         return { headers: { 'mcp-session-id': 'sess-1' }, body: 'data: {"jsonrpc":"2.0","id":1,"result":{}}' };
@@ -33,7 +34,7 @@ function makeHelpers(schema, sink) {
         });
       }
       if (body.includes('"tools/call"')) {
-        sink.push(JSON.parse(body).params.arguments);
+        sink.sent = JSON.parse(body).params.arguments;
         return { body: 'data: ' + JSON.stringify({ jsonrpc: '2.0', id: 3, result: { content: [{ type: 'text', text: 'OK' }] } }) };
       }
       return {};
@@ -43,6 +44,7 @@ function makeHelpers(schema, sink) {
 
 async function run({ file, node, schema, modelArgs, identity }) {
   const sink = [];
+  sink.sent = undefined; sink.audit = undefined;
   const $ = (name) => ({
     first: () => {
       if (identity === undefined) throw new Error('kein Merge Input');
@@ -55,7 +57,7 @@ async function run({ file, node, schema, modelArgs, identity }) {
     { mcp_url: 'https://mcp.example/test', tool_name: 'create_event', arguments: modelArgs },
     makeHelpers(schema, sink), $, { id: 'exec-1' }
   );
-  return { sent: sink[0], out: String(out) };
+  return { sent: sink.sent, audit: sink.audit, out: String(out) };
 }
 
 const SCHEMA_MIT_CALLER = {
@@ -98,6 +100,11 @@ function pruefe(name, bedingung, detail) {
 
   r = await run({ ...AGENT, schema: SCHEMA_OHNE_CALLER, identity: ICH, modelArgs: { subject: 'Termin', caller: 'entra:FREMDE-PERSON' } });
   pruefe('Regression: unbekanntes Argument wird weiter abgewiesen', r.sent === undefined && /unknown args/.test(r.out), r.out.slice(0, 120));
+
+  r = await run({ ...AGENT, schema: SCHEMA_MIT_CALLER, identity: ICH,
+    modelArgs: { subject: 'Termin', caller: 'entra:FREMDE-PERSON' } });
+  pruefe('Protokoll zeigt den gesendeten caller, nicht den des Modells',
+    r.audit && r.audit.args && r.audit.args.caller === 'entra:95625b4e', r.audit && r.audit.args);
 
   console.log('--- Sub-Agent ---');
   r = await run({ ...SUB, schema: SCHEMA_MIT_CALLER, identity: ICH, modelArgs: { subject: 'Termin', caller: 'entra:FREMDE-PERSON' } });
