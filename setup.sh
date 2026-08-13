@@ -548,11 +548,13 @@ if [ -n "$DOMAIN" ] && [[ "$DOMAIN" != "your_"* ]] && [ "$SKIP_REVERSE_PROXY" !=
   cat > /etc/nginx/sites-available/n8n-claw << NGINX
 server {
     listen 80;
+    listen [::]:80;
     server_name ${DOMAIN};
     return 301 https://\$host\$request_uri;
 }
 server {
     listen 443 ssl;
+    listen [::]:443 ssl;
     server_name ${DOMAIN};
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
@@ -737,20 +739,31 @@ POSTGRES_CRED_ID="REPLACE_WITH_YOUR_CREDENTIAL_ID"
 TELEGRAM_CRED_ID=""
 
 # ── 10. Wait for n8n API to be ready ────────────────────────
-echo -e "\n${GREEN}⏳ Waiting for n8n API...${NC}"
-for i in {1..30}; do
+# After a version jump n8n runs database migrations and then activates every
+# workflow before the API answers. On an instance with many workflows that takes
+# well over a minute, so this waits up to 5 minutes instead of 90 seconds.
+echo -e "\n${GREEN}⏳ Waiting for n8n API (up to 5 minutes; a version upgrade runs migrations first)...${NC}"
+for i in {1..60}; do
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
     "${N8N_BASE:-http://localhost:5678}/api/v1/workflows" 2>/dev/null)
   if [ "$STATUS" = "200" ]; then
-    echo -e "  ${GREEN}✅ n8n API ready${NC}"
+    echo -e "\n  ${GREEN}✅ n8n API ready${NC}"
     break
   fi
-  sleep 3; echo -n "."
+  sleep 5; echo -n "."
+  [ $((i % 12)) -eq 0 ] && echo -n " ($((i * 5))s)"
 done
 echo ""
 if [ "$STATUS" != "200" ]; then
-  echo -e "${RED}❌ n8n API not responding (status: $STATUS). Check n8n logs: docker logs n8n-claw${NC}"
+  echo -e "${RED}❌ n8n API not responding after 5 minutes (last status: $STATUS)${NC}"
+  case "$STATUS" in
+    000) echo -e "${YELLOW}   Nothing answered on ${N8N_BASE:-http://localhost:5678}. Is the container up?  docker ps -a | grep n8n${NC}"
+         echo -e "${YELLOW}   Still starting? Watch it finish:  docker logs -f n8n-claw${NC}" ;;
+    401|403) echo -e "${YELLOW}   n8n answered but rejected N8N_API_KEY. Create a fresh key in the n8n UI${NC}"
+         echo -e "${YELLOW}   (Settings > n8n API) and put it into .env as N8N_API_KEY.${NC}" ;;
+    *)   echo -e "${YELLOW}   Check the logs:  docker logs --tail 50 n8n-claw${NC}" ;;
+  esac
   exit 1
 fi
 
