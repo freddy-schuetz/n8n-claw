@@ -1,0 +1,163 @@
+{
+  "name": "💬 Teams Adapter",
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "hook",
+      "name": "Von der Bruecke",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "teams-in",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {
+          "rawBody": false
+        }
+      }
+    },
+    {
+      "id": "vor",
+      "name": "Vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Nimmt entgegen, was die Bruecke aus Teams weitergereicht hat, und macht daraus\n// eine Anfrage an Rupert. Der Agent bleibt dabei unveraendert: er kennt Teams\n// gar nicht, er sieht eine ganz normale Anfrage mit Quelle \"teams\".\nconst b = $input.first().json;\nconst kopf = b.headers || {};\nconst d = b.body || b;\n\nif ((kopf['x-bridge-secret'] || '') !== '{{BRIDGE_SECRET}}') {\n  return [{ json: { abbruch: true, grund: 'falsches oder fehlendes Bruecken-Geheimnis' } }];\n}\nif (!d.text || !d.conversationId || !d.serviceUrl) {\n  return [{ json: { abbruch: true, grund: 'unvollstaendige Nutzlast' } }];\n}\n\n// Die Objekt-ID aus Entra ist genau der Schluessel, unter dem die persoenlichen\n// Microsoft-Zugaenge liegen. Damit ist eine Person in Teams und in der\n// Weboberflaeche dieselbe, ohne Zuordnungstabelle.\nconst userId = d.aadObjectId ? ('entra:' + d.aadObjectId) : ('teams:' + (d.fromId || 'unbekannt'));\n\nreturn [{ json: {\n  abbruch: false,\n  message: d.text,\n  user_id: userId,\n  session_id: 'teams:' + d.conversationId,\n  display_name: d.fromName || '',\n  serviceUrl: d.serviceUrl,\n  conversationId: d.conversationId\n} }];"
+      }
+    },
+    {
+      "id": "gate",
+      "name": "Weiter?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "g1",
+              "leftValue": "={{ $json.abbruch }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "agent",
+      "name": "Rupert fragen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        -60
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "{{AGENT_URL}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "{{WEBHOOK_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $json.message, user_id: $json.user_id, session_id: $json.session_id, source: 'teams', metadata: { display_name: $json.display_name } }) }}",
+        "options": {
+          "timeout": 240000
+        }
+      }
+    },
+    {
+      "id": "zurueck",
+      "name": "Antwort zurueck",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -60
+      ],
+      "parameters": {
+        "jsCode": "// Schickt die Antwort ueber die Bruecke zurueck in die Teams-Konversation.\nconst vor = $('Vorbereiten').first().json;\nconst ant = $input.first().json;\nconst text = (ant && (ant.response || ant.output || ant.text)) || 'Dazu habe ich gerade keine Antwort.';\n\ntry {\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: '{{BRIDGE_URL}}/reply',\n    headers: { 'Content-Type': 'application/json', 'X-Bridge-Secret': '{{BRIDGE_SECRET}}' },\n    body: JSON.stringify({ serviceUrl: vor.serviceUrl, conversationId: vor.conversationId, text: String(text) }),\n    timeout: 20000\n  });\n  return [{ json: { gesendet: true, zeichen: String(text).length } }];\n} catch (e) {\n  return [{ json: { gesendet: false, fehler: String((e && e.message) || e) } }];\n}"
+      }
+    }
+  ],
+  "connections": {
+    "Von der Bruecke": {
+      "main": [
+        [
+          {
+            "node": "Vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Weiter?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weiter?": {
+      "main": [
+        [
+          {
+            "node": "Rupert fragen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Rupert fragen": {
+      "main": [
+        [
+          {
+            "node": "Antwort zurueck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

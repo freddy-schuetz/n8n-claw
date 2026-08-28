@@ -730,6 +730,19 @@ if [ -n "$AUDIT_ERRORS" ]; then
 fi
 echo "  ✅ Tool audit log applied"
 
+# Per-user OAuth tokens (Microsoft 365 foundation). Tokens are encrypted with
+# pgcrypto; the key lives in n8n, so the table is only reachable through the
+# three RPCs defined in the migration.
+echo "  Applying per-user OAuth token migration..."
+USERTOK_OUTPUT=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres \
+  -f supabase/migrations/012_user_oauth_tokens.sql 2>&1)
+USERTOK_ERRORS=$(echo "$USERTOK_OUTPUT" | grep -i "error" | head -5)
+if [ -n "$USERTOK_ERRORS" ]; then
+  echo -e "  ${YELLOW}⚠️  User token migration warnings:${NC}"
+  echo "$USERTOK_ERRORS" | while read line; do echo "    $line"; done
+fi
+echo "  ✅ Per-user OAuth tokens applied"
+
 # Reload PostgREST schema cache so new tables are immediately available via API
 docker kill --signal=SIGUSR1 $(docker ps -q --filter name=rest) 2>/dev/null || true
 

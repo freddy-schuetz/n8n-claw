@@ -1,0 +1,67 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "1.0.0",
+  "id": "8f202d23-41c2-4643-934b-3bff45226070",
+  "developer": {
+    "name": "Friedemann Schuetz",
+    "websiteUrl": "https://agent.sltg.at",
+    "privacyUrl": "https://agent.sltg.at",
+    "termsOfUseUrl": "https://agent.sltg.at"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "Rupert (Test)",
+    "full": "Rupert, KI-Assistent (Testfassung)"
+  },
+  "description": {
+    "short": "Fragt Kalender und Postfach ab und hilft im Alltag.",
+    "full": "Rupert ist der KI-Assistent des Teams. Im Einzelchat einfach fragen, in einem Kanal mit @Rupert ansprechen. Er arbeitet immer im Namen der fragenden Person und sieht nur, was diese Person selbst sehen darf. Testfassung."
+  },
+  "accentColor": "#14532D",
+  "bots": [
+    {
+      "botId": "8f202d23-41c2-4643-934b-3bff45226070",
+      "scopes": [
+        "personal",
+        "team",
+        "groupChat"
+      ],
+      "isNotificationOnly": false,
+      "supportsFiles": false,
+      "commandLists": [
+        {
+          "scopes": [
+            "personal",
+            "team",
+            "groupChat"
+          ],
+          "commands": [
+            {
+              "title": "Termine",
+              "description": "Welche Termine habe ich diese Woche?"
+            },
+            {
+              "title": "Freie Zeit",
+              "description": "Wann habe ich am Donnerstag Zeit?"
+            },
+            {
+              "title": "Postfach",
+              "description": "Was liegt Neues in meinem Postfach?"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "agent.sltg.at"
+  ]
+}

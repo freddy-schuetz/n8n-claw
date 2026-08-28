@@ -1,0 +1,54 @@
+{
+  "name": "🔄 MS Token Refresh",
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "sched",
+      "name": "Alle 20 Minuten",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 20
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "run",
+      "name": "Zugaenge auffrischen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Frischt Microsoft-Zugaenge auf, bevor sie ablaufen. Ohne diesen Lauf merkt\n// niemand etwas, solange jemand aktiv fragt (der Skill erneuert dann selbst),\n// aber Erinnerungen und naechtliche Zusammenfassungen laufen ins Leere.\n// Zusaetzlich haelt er die 90-Tage-Frist offen: ein Zugang, der drei Monate\n// nicht benutzt wird, verfaellt bei Microsoft endgueltig.\n\nconst SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst pg = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json' };\n\nconst credRows = await helpers.httpRequest({\n  method: 'GET',\n  url: SUPABASE_URL + '/rest/v1/template_credentials?template_id=eq.microsoft&select=cred_key,cred_value',\n  headers: pg, json: true\n});\nconst cred = {};\nfor (const c of (credRows || [])) cred[c.cred_key] = c.cred_value;\nif (!cred.token_key || !cred.client_id) return [{ json: { result: 'Microsoft ist nicht eingerichtet, nichts zu tun.' } }];\n\n// Faellig: laeuft in den naechsten 25 Minuten ab, ODER wurde seit 50 Tagen nicht\n// erneuert (dann ist die 90-Tage-Frist in Sicht).\nconst faellig = await helpers.httpRequest({\n  method: 'GET',\n  url: SUPABASE_URL + \"/rest/v1/user_oauth_tokens?provider=eq.microsoft&status=eq.connected\" +\n       \"&or=(expires_at.lt.\" + new Date(Date.now() + 25 * 60000).toISOString() +\n       \",last_refresh_at.lt.\" + new Date(Date.now() - 50 * 864e5).toISOString() + \")\" +\n       \"&select=user_key,account_id,scopes\",\n  headers: pg, json: true\n});\n\nif (!faellig || !faellig.length) return [{ json: { result: 'Keine Zugaenge faellig.' } }];\n\nconst ok = [], kaputt = [];\nfor (const row of faellig) {\n  let tokRow;\n  try {\n    const rows = await helpers.httpRequest({\n      method: 'POST', url: SUPABASE_URL + '/rest/v1/rpc/get_user_token', headers: pg, json: true,\n      body: JSON.stringify({ p_user_key: row.user_key, p_provider: 'microsoft', p_key: cred.token_key, p_account_id: row.account_id || '' })\n    });\n    tokRow = rows && rows[0];\n  } catch (e) { kaputt.push(row.user_key + ' (nicht lesbar)'); continue; }\n  if (!tokRow || !tokRow.refresh_token) {\n    await helpers.httpRequest({ method: 'POST', url: SUPABASE_URL + '/rest/v1/rpc/mark_user_token', headers: pg,\n      body: JSON.stringify({ p_user_key: row.user_key, p_provider: 'microsoft', p_status: 'reconnect_required', p_detail: 'kein refresh_token' }) });\n    kaputt.push(row.user_key + ' (kein refresh_token)');\n    continue;\n  }\n  try {\n    const tok = await helpers.httpRequest({\n      method: 'POST',\n      url: 'https://login.microsoftonline.com/' + encodeURIComponent(cred.tenant_id) + '/oauth2/v2.0/token',\n      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, json: true,\n      body: 'client_id=' + encodeURIComponent(cred.client_id) +\n            '&client_secret=' + encodeURIComponent(cred.client_secret) +\n            '&refresh_token=' + encodeURIComponent(tokRow.refresh_token) +\n            '&grant_type=refresh_token&scope=' + encodeURIComponent(row.scopes || tokRow.scopes || 'openid profile offline_access')\n    });\n    await helpers.httpRequest({\n      method: 'POST', url: SUPABASE_URL + '/rest/v1/rpc/upsert_user_token', headers: pg,\n      body: JSON.stringify({\n        p_user_key: row.user_key, p_provider: 'microsoft', p_key: cred.token_key,\n        p_access_token: tok.access_token, p_refresh_token: tok.refresh_token || '',\n        p_expires_at: new Date(Date.now() + ((tok.expires_in || 3600) * 1000)).toISOString(),\n        p_scopes: tok.scope || row.scopes || null, p_account_id: row.account_id || ''\n      })\n    });\n    ok.push(row.user_key);\n  } catch (e) {\n    const body = (e && e.response && e.response.body) ? JSON.stringify(e.response.body) : String(e.message || e);\n    const code = (body.match(/AADSTS\\d+/) || ['unbekannt'])[0];\n    await helpers.httpRequest({ method: 'POST', url: SUPABASE_URL + '/rest/v1/rpc/mark_user_token', headers: pg,\n      body: JSON.stringify({ p_user_key: row.user_key, p_provider: 'microsoft', p_status: 'reconnect_required', p_detail: code }) });\n    kaputt.push(row.user_key + ' (' + code + ')');\n  }\n}\n\nreturn [{ json: { result: 'Erneuert: ' + (ok.join(', ') || 'keine') + (kaputt.length ? ' | Muss neu verbinden: ' + kaputt.join(', ') : '') } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Alle 20 Minuten": {
+      "main": [
+        [
+          {
+            "node": "Zugaenge auffrischen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

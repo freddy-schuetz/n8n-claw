@@ -1,0 +1,426 @@
+{
+  "format": "n8n-claw-template",
+  "format_version": 1,
+  "sub": {
+    "name": "MCP Sub: Microsoft SharePoint",
+    "settings": {
+      "executionOrder": "v1",
+      "callerPolicy": "workflowsFromSameOwner"
+    },
+    "nodes": [
+      {
+        "id": "sub-trigger",
+        "name": "Execute Workflow Trigger",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "inputSource": "passthrough"
+        }
+      },
+      {
+        "id": "sub-logic",
+        "name": "SharePoint Logic",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "jsCode": "// Microsoft SharePoint, im Namen der fragenden Person.\n//\n// Mit Sites.Selected gilt die Schnittmenge: die Anwendung darf nur die von der\n// IT freigegebenen Bereiche, und darin nur das, was die fragende Person selbst\n// sehen darf. Ein 403 ist hier deshalb kein Fehler, sondern eine Auskunft.\n\nconst input = { ...$input.first().json };\nfor (const _k of Object.keys(input)) { if (input[_k] === '' || input[_k] === null) delete input[_k]; }\nconst action = input.action || '';\nconst caller = String(input.caller || '').trim();\n\nconst SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst pg = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json' };\nconst GRAPH = 'https://graph.microsoft.com/v1.0';\nfunction fail(m) { return [{ json: { error: m, fertig: true } }]; }\n\nconst credRows = await helpers.httpRequest({ method: 'GET',\n  url: SUPABASE_URL + '/rest/v1/template_credentials?template_id=eq.microsoft&select=cred_key,cred_value',\n  headers: pg, json: true });\nconst cred = {}; for (const c of (credRows || [])) cred[c.cred_key] = c.cred_value;\nfor (const need of ['tenant_id','client_id','client_secret','token_key','redirect_uri'])\n  if (!cred[need]) return fail('Microsoft ist nicht eingerichtet, es fehlt: ' + need);\nconst connectUrl = String(cred.redirect_uri).replace('ms-oauth-callback', 'ms-connect');\n\nlet bereiche = [];\ntry { bereiche = JSON.parse(cred.sharepoint_sites || '[]'); } catch (e) {}\nif (!bereiche.length) return fail('Es ist kein SharePoint-Bereich freigegeben. Die Freigabe erfolgt je Bereich durch die IT.');\n\nif (!caller) return fail('Kein Nutzerbezug vorhanden. SharePoint-Zugriff geht nur im Namen einer angemeldeten Person.');\n\nlet personKey = caller;\nif (!caller.startsWith('entra:')) {\n  try {\n    const map = await helpers.httpRequest({ method: 'GET',\n      url: SUPABASE_URL + '/rest/v1/user_identity_map?legacy_key=eq.' + encodeURIComponent(caller) + '&select=entra_key',\n      headers: pg, json: true });\n    if (map && map[0] && map[0].entra_key) personKey = map[0].entra_key;\n  } catch (e) {}\n}\n\nasync function accessToken() {\n  const rows = await helpers.httpRequest({ method: 'POST', url: SUPABASE_URL + '/rest/v1/rpc/get_user_token',\n    headers: pg, json: true,\n    body: JSON.stringify({ p_user_key: personKey, p_provider: 'microsoft', p_key: cred.token_key }) });\n  const row = rows && rows[0];\n  if (!row) return { error: 'Fuer diese Person ist noch kein Microsoft-Konto verbunden. Einmalig verbinden: ' + connectUrl + '?user=' + encodeURIComponent(caller) };\n  if (row.status !== 'connected') return { error: 'Die Verbindung ist unterbrochen (' + row.status + '). Bitte neu verbinden: ' + connectUrl + '?user=' + encodeURIComponent(caller) };\n  if (new Date(row.expires_at).getTime() - Date.now() > 5 * 60 * 1000) return { token: row.access_token };\n  if (!row.refresh_token) return { error: 'Der Zugang ist abgelaufen. Bitte neu verbinden: ' + connectUrl + '?user=' + encodeURIComponent(caller) };\n  let tok;\n  try {\n    tok = await helpers.httpRequest({ method: 'POST',\n      url: 'https://login.microsoftonline.com/' + encodeURIComponent(cred.tenant_id) + '/oauth2/v2.0/token',\n      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, json: true,\n      body: 'client_id=' + encodeURIComponent(cred.client_id) + '&client_secret=' + encodeURIComponent(cred.client_secret) +\n            '&refresh_token=' + encodeURIComponent(row.refresh_token) + '&grant_type=refresh_token&scope=' + encodeURIComponent(row.scopes || '') });\n  } catch (e) {\n    const b = (e && e.response && e.response.body) ? JSON.stringify(e.response.body) : String(e.message || e);\n    const code = (b.match(/AADSTS\\d+/) || ['unbekannt'])[0];\n    await helpers.httpRequest({ method: 'POST', url: SUPABASE_URL + '/rest/v1/rpc/mark_user_token', headers: pg,\n      body: JSON.stringify({ p_user_key: personKey, p_provider: 'microsoft', p_status: 'reconnect_required', p_detail: code }) });\n    return { error: 'Die Verbindung ist beendet (' + code + '). Bitte neu verbinden: ' + connectUrl + '?user=' + encodeURIComponent(caller) };\n  }\n  await helpers.httpRequest({ method: 'POST', url: SUPABASE_URL + '/rest/v1/rpc/upsert_user_token', headers: pg,\n    body: JSON.stringify({ p_user_key: personKey, p_provider: 'microsoft', p_key: cred.token_key,\n      p_access_token: tok.access_token, p_refresh_token: tok.refresh_token || '',\n      p_expires_at: new Date(Date.now() + ((tok.expires_in || 3600) * 1000)).toISOString(),\n      p_scopes: tok.scope || row.scopes || null, p_account_id: row.account_id || '' }) });\n  return { token: tok.access_token };\n}\n\nconst t = await accessToken();\nif (t.error) return fail(t.error);\nconst H = { Authorization: 'Bearer ' + t.token };\n\nfunction errText(e) {\n  const b = e && e.response && e.response.body;\n  if (b && b.error && b.error.message) return b.error.message;\n  const s = String((e && e.message) || e);\n  if (/40[13]/.test(s)) return 'Zugriff verweigert. Entweder ist der Bereich nicht freigegeben, oder die fragende Person hat dort selbst keine Rechte.';\n  return s;\n}\nfunction bereichFinden(name) {\n  if (!name) return bereiche[0];\n  const n = String(name).toLowerCase();\n  return bereiche.find(function (b) { return String(b.name).toLowerCase().indexOf(n) >= 0; }) || null;\n}\nfunction groesse(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }\nfunction zeile(it) {\n  const art = it.folder ? '[Ordner]' : '[' + groesse(it.size || 0) + ']';\n  return '- ' + art + ' ' + it.name + (it.folder ? '/' : '') +\n         '  geaendert ' + String(it.lastModifiedDateTime || '').replace('T', ' ').slice(0, 16) +\n         (it.folder ? '' : '  (id: ' + it.id + ')');\n}\n\ntry {\n  if (action === 'list_sites') {\n    return [{ json: { fertig: true, result: 'Freigegebene Bereiche:\\n' +\n      bereiche.map(function (b) { return '- ' + b.name; }).join('\\n') +\n      '\\n\\nWeitere Bereiche muss die IT einzeln freigeben.' } }];\n  }\n\n  if (action === 'list_files') {\n    const b = bereichFinden(input.site);\n    if (!b) return fail('Bereich nicht freigegeben. Verfuegbar: ' + bereiche.map(function (x) { return x.name; }).join(', '));\n    const pfad = String(input.path || '').replace(/^\\/+|\\/+$/g, '');\n    const basis = pfad\n      ? GRAPH + '/sites/' + b.id + '/drive/root:/' + encodeURI(pfad) + ':/children'\n      : GRAPH + '/sites/' + b.id + '/drive/root/children';\n    const r = await helpers.httpRequest({ method: 'GET',\n      url: basis + '?$top=50&$select=id,name,size,folder,lastModifiedDateTime', headers: H, json: true });\n    const items = (r && r.value) || [];\n    if (!items.length) return [{ json: { fertig: true, result: 'In \"' + b.name + (pfad ? '/' + pfad : '') + '\" liegt nichts.' } }];\n    return [{ json: { fertig: true, result: b.name + (pfad ? '/' + pfad : '') + ', ' + items.length + ' Eintraege:\\n' + items.map(zeile).join('\\n') } }];\n  }\n\n  if (action === 'search_files') {\n    if (!input.query) return fail('Parameter \"query\" ist noetig.');\n    const b = bereichFinden(input.site);\n    if (!b) return fail('Bereich nicht freigegeben. Verfuegbar: ' + bereiche.map(function (x) { return x.name; }).join(', '));\n    const suchwort = String(input.query);\n    const q = encodeURIComponent(suchwort.split(\"'\").join(''));\n\n    // Erst der Suchindex von SharePoint. Er findet auch Text INNERHALB von\n    // Dateien, braucht aber Zeit: eine frisch angelegte Website steht dort\n    // stundenlang gar nicht drin, und dann findet er nicht einmal Dateinamen.\n    let items = [];\n    let weg = 'Suchindex';\n    try {\n      const r = await helpers.httpRequest({ method: 'GET',\n        url: GRAPH + '/sites/' + b.id + '/drive/root/search(q=%27' + q + '%27)?$top=25&$select=id,name,size,folder,lastModifiedDateTime',\n        headers: H, json: true });\n      items = (r && r.value) || [];\n    } catch (e) { items = []; }\n\n    // Faellt er leer aus, gehen wir die Ablage selbst durch und vergleichen\n    // Namen. Das findet keine Inhalte, dafuer sofort und ohne Index.\n    if (!items.length) {\n      weg = 'Namensabgleich, der Suchindex lieferte nichts';\n      const nadel = suchwort.toLowerCase();\n      const offen = [''];\n      let besucht = 0;\n      while (offen.length && besucht < 25 && items.length < 25) {\n        const pfad = offen.shift();\n        besucht++;\n        const url = pfad\n          ? GRAPH + '/sites/' + b.id + '/drive/root:/' + encodeURI(pfad) + ':/children'\n          : GRAPH + '/sites/' + b.id + '/drive/root/children';\n        let kinder = [];\n        try {\n          const rr = await helpers.httpRequest({ method: 'GET',\n            url: url + '?$top=200&$select=id,name,size,folder,lastModifiedDateTime', headers: H, json: true });\n          kinder = (rr && rr.value) || [];\n        } catch (e) { continue; }\n        for (const k of kinder) {\n          if (k.folder) offen.push(pfad ? pfad + '/' + k.name : k.name);\n          if (String(k.name || '').toLowerCase().indexOf(nadel) >= 0) { k.__pfad = pfad; items.push(k); }\n        }\n      }\n    }\n\n    if (!items.length) {\n      return [{ json: { fertig: true, result: 'Nichts gefunden zu \"' + suchwort + '\" in \"' + b.name +\n        '\". Gesucht wurde im Suchindex und zusaetzlich ueber die Dateinamen. Bei einer frisch angelegten Ablage kann der Index noch fehlen, dann findet nur der Namensabgleich etwas.' } }];\n    }\n    return [{ json: { fertig: true, result: items.length + ' Treffer in \"' + b.name + '\" (' + weg + '):\\n' +\n      items.map(function (it) { return zeile(it) + (it.__pfad ? '  in /' + it.__pfad : ''); }).join('\\n') } }];\n  }\n\n  if (action === 'read_file') {\n    if (!input.file_id) return fail('Parameter \"file_id\" ist noetig, die id steht bei jeder Datei aus list_files oder search_files.');\n    const b = bereichFinden(input.site);\n    if (!b) return fail('Bereich nicht freigegeben. Verfuegbar: ' + bereiche.map(function (x) { return x.name; }).join(', '));\n    const meta = await helpers.httpRequest({ method: 'GET',\n      url: GRAPH + '/sites/' + b.id + '/drive/items/' + encodeURIComponent(input.file_id) + '?$select=id,name,size,file,webUrl',\n      headers: H, json: true });\n    const name = meta.name || '';\n    if (/\\.(txt|md|csv|json|xml|html?|log)$/i.test(name)) {\n      const roh = await helpers.httpRequest({ method: 'GET',\n        url: GRAPH + '/sites/' + b.id + '/drive/items/' + encodeURIComponent(input.file_id) + '/content',\n        headers: H, json: false });\n      return [{ json: { fertig: true, result: 'Datei \"' + name + '\":\\n\\n' + String(roh).slice(0, 6000) } }];\n    }\n    // Word, PowerPoint, Excel und PDF: Microsoft wandelt selbst nach PDF um, den\n    // Text zieht danach der Extract-Baustein heraus. Ohne diesen Umweg muesste\n    // der Skill Dateiformate selbst auspacken, wofuer im Code-Baustein die\n    // Bibliotheken fehlen.\n    const bin = await helpers.httpRequest({ method: 'GET',\n      url: GRAPH + '/sites/' + b.id + '/drive/items/' + encodeURIComponent(input.file_id) + '/content?format=pdf',\n      headers: H, encoding: 'arraybuffer' });\n    const daten = await this.helpers.prepareBinaryData(Buffer.from(bin), name.replace(/\\.[^.]+$/, '') + '.pdf', 'application/pdf');\n    return [{ json: { fertig: false, dateiname: name, webUrl: meta.webUrl || '' }, binary: { data: daten } }];\n  }\n\n  return fail('Unbekannte Aktion \"' + action + '\". Moeglich: list_sites, list_files, search_files, read_file.');\n} catch (e) {\n  return fail('SharePoint (' + action + '): ' + errText(e));\n}"
+        }
+      },
+      {
+        "id": "sub-if",
+        "name": "Text schon fertig?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          440,
+          0
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "f1",
+                "leftValue": "={{ $json.fertig }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "looseTypeValidation": true,
+          "options": {}
+        }
+      },
+      {
+        "id": "sub-extract",
+        "name": "Text aus PDF",
+        "type": "n8n-nodes-base.extractFromFile",
+        "typeVersion": 1,
+        "position": [
+          660,
+          120
+        ],
+        "parameters": {
+          "operation": "pdf",
+          "binaryPropertyName": "data",
+          "options": {}
+        }
+      },
+      {
+        "id": "sub-fmt",
+        "name": "Antwort bauen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          880,
+          120
+        ],
+        "parameters": {
+          "jsCode": "// Text aus der umgewandelten PDF zusammenfassen.\nconst j = $input.first().json;\nconst vor = $('SharePoint Logic').first().json;\nconst text = String(j.text || j.data || '').replace(/\\n{3,}/g, '\\n\\n').trim();\nif (!text) {\n  return [{ json: { result: 'Die Datei \"' + (vor.dateiname || '') + '\" liess sich nicht in Text umwandeln. Sie liegt hier: ' + (vor.webUrl || '') } }];\n}\nreturn [{ json: { result: 'Datei \"' + (vor.dateiname || '') + '\" (' + text.length + ' Zeichen):\\n\\n' + text.slice(0, 6000) } }];"
+        }
+      }
+    ],
+    "connections": {
+      "Execute Workflow Trigger": {
+        "main": [
+          [
+            {
+              "node": "SharePoint Logic",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "SharePoint Logic": {
+        "main": [
+          [
+            {
+              "node": "Text schon fertig?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Text schon fertig?": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Text aus PDF",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Text aus PDF": {
+        "main": [
+          [
+            {
+              "node": "Antwort bauen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "server": {
+    "name": "MCP Server: Microsoft SharePoint",
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "nodes": [
+      {
+        "id": "mcp-trigger",
+        "name": "MCP Server Trigger",
+        "type": "@n8n/n8n-nodes-langchain.mcpTrigger",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "path": "microsoft-sharepoint"
+        }
+      },
+      {
+        "id": "t-sites",
+        "name": "list_sites",
+        "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+        "typeVersion": 2.2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "name": "list_sites",
+          "description": "Zeigt, welche SharePoint-Bereiche fuer Rupert freigegeben sind.",
+          "workflowId": {
+            "__rl": true,
+            "value": "REPLACE_SUB_WORKFLOW_ID",
+            "mode": "id"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "action": "list_sites",
+              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}"
+            },
+            "schema": [
+              {
+                "id": "action",
+                "displayName": "action",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "caller",
+                "displayName": "caller",
+                "type": "string",
+                "required": false
+              }
+            ],
+            "attemptToConvertTypes": true,
+            "convertFieldsToString": true
+          }
+        }
+      },
+      {
+        "id": "t-list",
+        "name": "list_files",
+        "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+        "typeVersion": 2.2,
+        "position": [
+          220,
+          160
+        ],
+        "parameters": {
+          "name": "list_files",
+          "description": "Inhalt eines Ordners in einem SharePoint-Bereich auflisten.",
+          "workflowId": {
+            "__rl": true,
+            "value": "REPLACE_SUB_WORKFLOW_ID",
+            "mode": "id"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "action": "list_files",
+              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "site": "={{ $fromAI('site', 'Name des Bereichs, optional wenn es nur einen gibt', 'string') }}",
+              "path": "={{ $fromAI('path', 'Ordnerpfad innerhalb der Dokumente, optional', 'string') }}"
+            },
+            "schema": [
+              {
+                "id": "action",
+                "displayName": "action",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "caller",
+                "displayName": "caller",
+                "type": "string",
+                "required": false
+              },
+              {
+                "id": "site",
+                "displayName": "site",
+                "type": "string",
+                "required": false
+              },
+              {
+                "id": "path",
+                "displayName": "path",
+                "type": "string",
+                "required": false
+              }
+            ],
+            "attemptToConvertTypes": true,
+            "convertFieldsToString": true
+          }
+        }
+      },
+      {
+        "id": "t-search",
+        "name": "search_files",
+        "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+        "typeVersion": 2.2,
+        "position": [
+          220,
+          320
+        ],
+        "parameters": {
+          "name": "search_files",
+          "description": "In einem SharePoint-Bereich nach Dateien suchen.",
+          "workflowId": {
+            "__rl": true,
+            "value": "REPLACE_SUB_WORKFLOW_ID",
+            "mode": "id"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "action": "search_files",
+              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "query": "={{ $fromAI('query', 'Suchbegriff', 'string') }}",
+              "site": "={{ $fromAI('site', 'Name des Bereichs, optional', 'string') }}"
+            },
+            "schema": [
+              {
+                "id": "action",
+                "displayName": "action",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "caller",
+                "displayName": "caller",
+                "type": "string",
+                "required": false
+              },
+              {
+                "id": "query",
+                "displayName": "query",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "site",
+                "displayName": "site",
+                "type": "string",
+                "required": false
+              }
+            ],
+            "attemptToConvertTypes": true,
+            "convertFieldsToString": true
+          }
+        }
+      },
+      {
+        "id": "t-read",
+        "name": "read_file",
+        "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+        "typeVersion": 2.2,
+        "position": [
+          220,
+          480
+        ],
+        "parameters": {
+          "name": "read_file",
+          "description": "Eine Datei lesen und ihren Text zurueckgeben. Word, PowerPoint, Excel und PDF werden dafuer umgewandelt.",
+          "workflowId": {
+            "__rl": true,
+            "value": "REPLACE_SUB_WORKFLOW_ID",
+            "mode": "id"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "action": "read_file",
+              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "file_id": "={{ $fromAI('file_id', 'id der Datei aus list_files oder search_files', 'string') }}",
+              "site": "={{ $fromAI('site', 'Name des Bereichs, optional', 'string') }}"
+            },
+            "schema": [
+              {
+                "id": "action",
+                "displayName": "action",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "caller",
+                "displayName": "caller",
+                "type": "string",
+                "required": false
+              },
+              {
+                "id": "file_id",
+                "displayName": "file_id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "id": "site",
+                "displayName": "site",
+                "type": "string",
+                "required": false
+              }
+            ],
+            "attemptToConvertTypes": true,
+            "convertFieldsToString": true
+          }
+        }
+      }
+    ],
+    "connections": {
+      "list_sites": {
+        "ai_tool": [
+          [
+            {
+              "node": "MCP Server Trigger",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "list_files": {
+        "ai_tool": [
+          [
+            {
+              "node": "MCP Server Trigger",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "search_files": {
+        "ai_tool": [
+          [
+            {
+              "node": "MCP Server Trigger",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "read_file": {
+        "ai_tool": [
+          [
+            {
+              "node": "MCP Server Trigger",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  }
+}

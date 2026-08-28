@@ -1,0 +1,226 @@
+{
+  "name": "🔑 MS OAuth",
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "connect-webhook",
+      "name": "Connect Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "ms-connect",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "build-authorize",
+      "name": "Build Authorize URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Startet die Verbindung eines persoenlichen Microsoft-Kontos.\n// Aufruf: /webhook/ms-connect?user=<kennung>&back=<optionale Rueckkehr-URL>\n// Die Kennung kommt vom Aufrufer (Weboberflaeche oder Agent), NICHT vom Modell.\nconst SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst pg = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json' };\n\nconst q = $input.first().json.query || {};\nconst userKey = String(q.user || '').trim();\nconst back = String(q.back || '').trim();\n\nfunction page(title, text) {\n  return { html: '<!doctype html><meta charset=\"utf-8\"><title>' + title + '</title>' +\n    '<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1rem;color:#1c2833}h1{font-size:1.3rem;color:#14532d}</style>' +\n    '<h1>' + title + '</h1><p>' + text + '</p>' };\n}\n\nif (!userKey) {\n  return [{ json: Object.assign({ error: true }, page('Verbindung nicht moeglich', 'Es fehlt die Angabe, fuer wen das Konto verbunden werden soll.')) }];\n}\n\n// Zugangsdaten der Anwendung\nconst credRows = await helpers.httpRequest({\n  method: 'GET',\n  url: SUPABASE_URL + '/rest/v1/template_credentials?template_id=eq.microsoft&select=cred_key,cred_value',\n  headers: pg, json: true\n});\nconst cred = {};\nfor (const c of (credRows || [])) cred[c.cred_key] = c.cred_value;\nfor (const need of ['tenant_id', 'client_id', 'redirect_uri']) {\n  if (!cred[need]) {\n    return [{ json: Object.assign({ error: true }, page('Nicht eingerichtet', 'In der Konfiguration fehlt: ' + need)) }];\n  }\n}\n\nconst SCOPES = cred.scopes || 'openid profile email offline_access User.Read Calendars.ReadWrite Mail.ReadWrite MailboxSettings.Read';\n\n// state: einmalig, kurzlebig, an die Person gebunden. Ohne diese Bindung liesse\n// sich der Rueecklaeufer niemandem zuordnen, genau das war die Luecke im\n// bisherigen Google-Callback.\n// Die Spalte ist eine UUID mit Vorgabewert, deshalb legt die Datenbank den Wert\n// an und wir lesen ihn zurueck. Ein selbst gebauter String scheitert dort.\nlet state;\ntry {\n  const ins = await helpers.httpRequest({\n    method: 'POST',\n    url: SUPABASE_URL + '/rest/v1/oauth_states',\n    headers: Object.assign({ 'Prefer': 'return=representation' }, pg),\n    body: JSON.stringify({\n      template_id: 'microsoft', provider: 'microsoft',\n      scopes: SCOPES, user_key: userKey, redirect_to: back || null\n    }),\n    json: true\n  });\n  state = ins && ins[0] && ins[0].state;\n} catch (e) {\n  const d = (e && e.response && e.response.body) ? JSON.stringify(e.response.body).slice(0, 300) : String(e.message || e);\n  return [{ json: Object.assign({ error: true }, page('Vorgang nicht startbar', d)) }];\n}\nif (!state) {\n  return [{ json: Object.assign({ error: true }, page('Vorgang nicht startbar', 'Die Datenbank lieferte keinen Vorgangsschluessel zurueck.')) }];\n}\n\nconst url = 'https://login.microsoftonline.com/' + encodeURIComponent(cred.tenant_id) + '/oauth2/v2.0/authorize' +\n  '?client_id=' + encodeURIComponent(cred.client_id) +\n  '&response_type=code&response_mode=query' +\n  '&redirect_uri=' + encodeURIComponent(cred.redirect_uri) +\n  '&scope=' + encodeURIComponent(SCOPES) +\n  '&state=' + encodeURIComponent(state);\n\nreturn [{ json: { error: false, url: url } }];"
+      }
+    },
+    {
+      "id": "callback-webhook",
+      "name": "Callback Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        220
+      ],
+      "parameters": {
+        "path": "ms-oauth-callback",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "handle-callback",
+      "name": "Handle Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        220
+      ],
+      "parameters": {
+        "jsCode": "// Nimmt den Rueckl aeufer von Microsoft entgegen, tauscht den Code gegen Token\n// und legt sie verschluesselt ab, gebunden an die Objekt-ID aus Entra.\nconst SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst pg = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json' };\n\nfunction page(title, text, ok) {\n  return { html: '<!doctype html><meta charset=\"utf-8\"><title>' + title + '</title>' +\n    '<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1rem;color:#1c2833}' +\n    'h1{font-size:1.3rem;color:' + (ok ? '#14532d' : '#8a2b2b') + '}</style>' +\n    '<h1>' + title + '</h1><p>' + text + '</p>', ok: !!ok };\n}\n\nconst q = $input.first().json.query || {};\n\nif (q.error) {\n  return [{ json: page('Verbindung abgebrochen', 'Microsoft meldet: ' + String(q.error_description || q.error).slice(0, 300), false) }];\n}\nif (!q.code || !q.state) {\n  return [{ json: page('Unvollstaendige Antwort', 'Der Rueckl aeufer enthielt keinen Code.', false) }];\n}\n\n// 1. state pruefen: existiert, unbenutzt, nicht abgelaufen. Danach sofort\n// entwerten, damit ein abgefangener Link nicht zweimal wirkt.\nconst rows = await helpers.httpRequest({\n  method: 'GET',\n  url: SUPABASE_URL + '/rest/v1/oauth_states?state=eq.' + encodeURIComponent(q.state) + '&select=*',\n  headers: pg, json: true\n});\nconst st = rows && rows[0];\nif (!st) return [{ json: page('Unbekannter Vorgang', 'Dieser Verbindungslink gehoert zu keinem offenen Vorgang.', false) }];\nif (st.used) return [{ json: page('Link bereits benutzt', 'Bitte den Vorgang neu starten.', false) }];\nif (new Date(st.expires_at) < new Date()) return [{ json: page('Link abgelaufen', 'Bitte den Vorgang neu starten.', false) }];\n\nawait helpers.httpRequest({\n  method: 'PATCH',\n  url: SUPABASE_URL + '/rest/v1/oauth_states?state=eq.' + encodeURIComponent(q.state),\n  headers: Object.assign({ 'Prefer': 'return=minimal' }, pg),\n  body: JSON.stringify({ used: true })\n});\n\n// 2. Zugangsdaten der Anwendung\nconst credRows = await helpers.httpRequest({\n  method: 'GET',\n  url: SUPABASE_URL + '/rest/v1/template_credentials?template_id=eq.microsoft&select=cred_key,cred_value',\n  headers: pg, json: true\n});\nconst cred = {};\nfor (const c of (credRows || [])) cred[c.cred_key] = c.cred_value;\nfor (const need of ['tenant_id', 'client_id', 'client_secret', 'redirect_uri', 'token_key']) {\n  if (!cred[need]) return [{ json: page('Nicht eingerichtet', 'In der Konfiguration fehlt: ' + need, false) }];\n}\n\n// 3. Code gegen Token tauschen\nlet tok;\ntry {\n  const form = 'client_id=' + encodeURIComponent(cred.client_id) +\n    '&client_secret=' + encodeURIComponent(cred.client_secret) +\n    '&code=' + encodeURIComponent(q.code) +\n    '&grant_type=authorization_code' +\n    '&redirect_uri=' + encodeURIComponent(cred.redirect_uri) +\n    '&scope=' + encodeURIComponent(st.scopes || '');\n  tok = await helpers.httpRequest({\n    method: 'POST',\n    url: 'https://login.microsoftonline.com/' + encodeURIComponent(cred.tenant_id) + '/oauth2/v2.0/token',\n    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },\n    body: form, json: true\n  });\n} catch (e) {\n  const d = (e && e.response && e.response.body) ? JSON.stringify(e.response.body).slice(0, 400) : String(e.message || e);\n  return [{ json: page('Token-Tausch fehlgeschlagen', d, false) }];\n}\nif (!tok || !tok.access_token) return [{ json: page('Token-Tausch fehlgeschlagen', 'Microsoft lieferte kein Zugriffstoken.', false) }];\n\n// 4. Wer ist das? Die Objekt-ID ist der Schluessel, nicht die Mailadresse:\n// Mail und Anmeldename sind laut Microsoft veraenderlich.\nlet me = {};\ntry {\n  me = await helpers.httpRequest({\n    method: 'GET', url: 'https://graph.microsoft.com/v1.0/me',\n    headers: { Authorization: 'Bearer ' + tok.access_token }, json: true\n  });\n} catch (e) {\n  return [{ json: page('Konto nicht lesbar', 'Das Zugriffstoken kam an, aber das Profil liess sich nicht abrufen.', false) }];\n}\nif (!me || !me.id) return [{ json: page('Konto nicht lesbar', 'Microsoft lieferte keine Objekt-ID.', false) }];\n\nconst entraKey = 'entra:' + me.id;\n\n// 5. Verschluesselt ablegen. Die Verschluesselung passiert in der Datenbank-\n// funktion, der Schluessel wird nur uebergeben und nirgends gespeichert.\nconst expiresAt = new Date(Date.now() + ((tok.expires_in || 3600) * 1000)).toISOString();\ntry {\n  await helpers.httpRequest({\n    method: 'POST',\n    url: SUPABASE_URL + '/rest/v1/rpc/upsert_user_token',\n    headers: pg,\n    body: JSON.stringify({\n      p_user_key: entraKey,\n      p_provider: 'microsoft',\n      p_key: cred.token_key,\n      p_access_token: tok.access_token,\n      p_refresh_token: tok.refresh_token || '',\n      p_expires_at: expiresAt,\n      p_scopes: tok.scope || st.scopes || null,\n      p_account_id: me.id\n    })\n  });\n} catch (e) {\n  const d = (e && e.response && e.response.body) ? JSON.stringify(e.response.body).slice(0, 400) : String(e.message || e);\n  return [{ json: page('Speichern fehlgeschlagen', d, false) }];\n}\n\n// 6. Verknuepfung festhalten: welche bisherige Kennung gehoert zu dieser Person.\n// Ohne sie haengen Gedaechtnis und Verlauf weiter an der alten Kennung, waehrend\n// die Microsoft-Werkzeuge unter der neuen arbeiten. Eigene Tabelle, damit nichts\n// ueberschrieben wird, was der Agent ueber die Person gespeichert hat.\ntry {\n  if (st.user_key && st.user_key !== entraKey) {\n    await helpers.httpRequest({\n      method: 'POST',\n      url: SUPABASE_URL + '/rest/v1/user_identity_map?on_conflict=legacy_key',\n      headers: Object.assign({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }, pg),\n      body: JSON.stringify({ legacy_key: st.user_key, entra_key: entraKey, entra_oid: me.id, upn: me.userPrincipalName || null })\n    });\n  }\n} catch (e) {}\n\nconst name = (me.displayName || me.userPrincipalName || 'Konto');\nreturn [{ json: page('Verbunden', 'Das Microsoft-Konto von ' + name + ' ist jetzt mit Rupert verbunden. Dieses Fenster kann geschlossen werden.', true) }];"
+      }
+    },
+    {
+      "id": "callback-respond",
+      "name": "Respond Page",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        220
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseCode": "={{ $json.ok ? 200 : 400 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "content-type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "connect-switch",
+      "name": "Fehler?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "connect-error",
+      "name": "Fehlerseite",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        -80
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "content-type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "connect-redirect",
+      "name": "Weiterleiten zu Microsoft",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        80
+      ],
+      "parameters": {
+        "respondWith": "redirect",
+        "redirectURL": "={{ $json.url }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Connect Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build Authorize URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Authorize URL": {
+      "main": [
+        [
+          {
+            "node": "Fehler?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Callback Webhook": {
+      "main": [
+        [
+          {
+            "node": "Handle Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Callback": {
+      "main": [
+        [
+          {
+            "node": "Respond Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fehler?": {
+      "main": [
+        [
+          {
+            "node": "Fehlerseite",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Weiterleiten zu Microsoft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
