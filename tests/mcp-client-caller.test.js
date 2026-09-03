@@ -106,9 +106,42 @@ function pruefe(name, bedingung, detail) {
   pruefe('Protokoll zeigt den gesendeten caller, nicht den des Modells',
     r.audit && r.audit.args && r.audit.args.caller === 'entra:95625b4e', r.audit && r.audit.args);
 
+  console.log('--- Alias-Toleranz ---');
+  const SCHEMA_MAIL = { type: 'object', properties: { caller: { type: 'string' }, message_id: { type: 'string' } }, required: ['caller', 'message_id'] };
+  r = await run({ ...AGENT, schema: SCHEMA_MAIL, identity: ICH, modelArgs: { id: 'AAMk123' } });
+  pruefe('id wird zu message_id', r.sent && r.sent.message_id === 'AAMk123' && !('id' in r.sent), r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_MAIL, identity: ICH, modelArgs: { user: 'web:hannah', message_id: 'AAMk123' } });
+  pruefe('user faellt weg, caller kommt vom Aufrufer', r.sent && !('user' in r.sent) && r.sent.caller === 'entra:95625b4e', r.sent);
+
+  const SCHEMA_CONFIRM = { type: 'object', properties: { caller: { type: 'string' }, subject: { type: 'string' }, confirm: { type: 'string' } }, required: ['caller', 'subject'] };
+  r = await run({ ...AGENT, schema: SCHEMA_CONFIRM, identity: ICH, modelArgs: { subject: 'Termin', confirm_invites: 'true' } });
+  pruefe('confirm_invites wird zu confirm', r.sent && r.sent.confirm === 'true' && !('confirm_invites' in r.sent), r.sent);
+
+  const SCHEMA_VEXA = { type: 'object', properties: { vexa_run_id: { type: 'string' } }, required: [] };
+  r = await run({ ...AGENT, schema: SCHEMA_VEXA, identity: ICH, modelArgs: { run_id: 26409 } });
+  pruefe('run_id wird zu vexa_run_id (und zum String)', r.sent && r.sent.vexa_run_id === '26409', r.sent);
+
+  const SCHEMA_ZWEI = { type: 'object', properties: { event_id: { type: 'string' }, message_id: { type: 'string' } }, required: [] };
+  r = await run({ ...AGENT, schema: SCHEMA_ZWEI, identity: ICH, modelArgs: { id: 'x' } });
+  pruefe('zwei Kandidaten: weiter abweisen', r.sent === undefined && /unknown args \[id\]/.test(r.out), r.out.slice(0, 120));
+
+  r = await run({ ...AGENT, schema: SCHEMA_MAIL, identity: ICH, modelArgs: { id: 'neu', message_id: 'alt' } });
+  pruefe('Zielfeld schon gefuellt: keine Umbenennung, Abweisung', r.sent === undefined && /unknown args \[id\]/.test(r.out), r.out.slice(0, 120));
+
+  r = await run({ ...AGENT, schema: SCHEMA_MAIL, identity: ICH, modelArgs: { range: 'week', message_id: 'x' } });
+  pruefe('fremdes Feld ohne Kandidat: weiter abweisen', r.sent === undefined && /unknown args \[range\]/.test(r.out), r.out.slice(0, 120));
+
   console.log('--- Sub-Agent ---');
   r = await run({ ...SUB, schema: SCHEMA_MIT_CALLER, identity: ICH, modelArgs: { subject: 'Termin', caller: 'entra:FREMDE-PERSON' } });
   pruefe('Sub-Agent sendet leeren caller', r.sent && r.sent.caller === '', r.sent);
+
+  r = await run({ ...SUB, schema: SCHEMA_MAIL, identity: ICH, modelArgs: { id: 'AAMk123' } });
+  pruefe('Sub-Agent: id wird zu message_id', r.sent && r.sent.message_id === 'AAMk123', r.sent);
+
+  const BG = { file: 'workflows/background-checker.json', node: 'MCP Client' };
+  r = await run({ ...BG, schema: SCHEMA_MAIL, identity: ICH, modelArgs: { id: 'AAMk123' } });
+  pruefe('Background Checker: id wird zu message_id, caller leer', r.sent && r.sent.message_id === 'AAMk123' && r.sent.caller === '', r.sent);
 
   console.log(fails === 0 ? '\nAlle Pruefungen bestanden.' : `\n${fails} Pruefung(en) fehlgeschlagen.`);
   process.exit(fails === 0 ? 0 : 1);
