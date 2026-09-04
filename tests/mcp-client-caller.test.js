@@ -132,6 +132,37 @@ function pruefe(name, bedingung, detail) {
   r = await run({ ...AGENT, schema: SCHEMA_MAIL, identity: ICH, modelArgs: { range: 'week', message_id: 'x' } });
   pruefe('fremdes Feld ohne Kandidat: weiter abweisen', r.sent === undefined && /unknown args \[range\]/.test(r.out), r.out.slice(0, 120));
 
+  console.log('--- Alias v2 ---');
+  const SCHEMA_JIRA = { type: 'object', properties: { key: { type: 'string' }, issuetype: { type: 'string' }, assignee: { type: 'string' }, description: { type: 'string' }, max_results: { type: 'string' }, text: { type: 'string' } }, required: [] };
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { key: 'OM-1', issue_type: 'Task' } });
+  pruefe('issue_type wird zu issuetype (normalisiert)', r.sent && r.sent.issuetype === 'Task' && !('issue_type' in r.sent), r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { key: 'OM-1', maxResults: 5 } });
+  pruefe('maxResults wird zu max_results (normalisiert, String)', r.sent && r.sent.max_results === '5', r.sent);
+
+  const SCHEMA_LIMIT = { type: 'object', properties: { jql: { type: 'string' }, limit: { type: 'string' } }, required: [] };
+  r = await run({ ...AGENT, schema: SCHEMA_LIMIT, identity: ICH, modelArgs: { jql: 'x', maxResults: 20 } });
+  pruefe('maxResults wird zu limit (Synonym)', r.sent && r.sent.limit === '20', r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { key: 'OM-1', body: 'Nein' } });
+  pruefe('body wird zu text (Synonym)', r.sent && r.sent.text === 'Nein' && !('body' in r.sent), r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { id: 'OM-1' } });
+  pruefe('id wird zu key (Synonym, kein Praefix-Kandidat)', r.sent && r.sent.key === 'OM-1', r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { key: 'OM-1', fields: { assignee: 'acc-1', description: 'Neu' } } });
+  pruefe('fields-Objekt wird hochgehoben', r.sent && r.sent.assignee === 'acc-1' && r.sent.description === 'Neu' && !('fields' in r.sent), r.sent);
+
+  const SCHEMA_JIRA_CALLER = { type: 'object', properties: { caller: { type: 'string' }, key: { type: 'string' }, assignee: { type: 'string' } }, required: [] };
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA_CALLER, identity: ICH, modelArgs: { key: 'OM-1', fields: { assignee: 'acc-1', caller: 'entra:FREMD' } } });
+  pruefe('Hochheben ueberspringt caller, Aufrufer setzt ihn', r.sent && r.sent.assignee === 'acc-1' && r.sent.caller === 'entra:95625b4e', r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { key: 'OM-1', fields: { assignee: 'acc-1', foo: 'x' } } });
+  pruefe('Objekt mit fremdem Schluessel bleibt Abweisung', r.sent === undefined && /unknown args \[fields\]/.test(r.out), r.out.slice(0, 120));
+
+  r = await run({ ...SUB, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { key: 'OM-1', issue_type: 'Task' } });
+  pruefe('Sub-Agent: issue_type normalisiert', r.sent && r.sent.issuetype === 'Task', r.sent);
+
   console.log('--- Sub-Agent ---');
   r = await run({ ...SUB, schema: SCHEMA_MIT_CALLER, identity: ICH, modelArgs: { subject: 'Termin', caller: 'entra:FREMDE-PERSON' } });
   pruefe('Sub-Agent sendet leeren caller', r.sent && r.sent.caller === '', r.sent);
