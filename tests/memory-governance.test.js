@@ -30,7 +30,8 @@ function umgebung(opts = {}) {
     if (url.includes('/tools_config?')) return [{ enabled: true, config: { provider: 'openai', api_key: 'k' } }];
     if (url.includes('api.openai.com')) return { data: [{ embedding: [0.1, 0.2] }] };
     if (url.includes('/claw_agents?key=eq.memory_admins')) return [{ content: opts.admins || '' }];
-    if (url.includes('/rpc/hybrid_search_memory')) return [{ id: 1, content: 'x', scope: 'team', owner_user_id: 'web:hannah' }];
+    if (url.includes('/rpc/hybrid_search_memory')) return opts.rows || [{ id: 1, content: 'x', scope: 'team', owner_user_id: 'web:hannah' }];
+    if (m === 'GET' && url.includes('/user_profiles?user_id=in.')) { if (opts.profilFehler) throw new Error('postgrest down'); return opts.profile || []; }
     if (m === 'GET' && url.includes('/memory_long?id=eq.')) return opts.row ? [opts.row] : [];
     if (m === 'POST' && url.includes('/memory_long')) return [{ id: 42 }];
     if (m === 'PATCH' && url.includes('/memory_long')) return { body: [{ id: (opts.row || {}).id }] };
@@ -38,7 +39,7 @@ function umgebung(opts = {}) {
     return {};
   } };
   const $ = (name) => ({ first: () => {
-    if (name === 'Merge Input') { if (opts.identity === null) throw new Error('kein Merge Input'); return { json: opts.identity || ICH }; }
+    if (name === 'Merge Input') { if (opts.identity === null) throw new Error('kein Merge Input'); return { json: Object.assign({}, opts.identity || ICH, opts.source ? { source: opts.source } : {}) }; }
     throw new Error('unbekannter Knoten: ' + name);
   } });
   return { calls, helpers, $, exec: { id: 'exec-1' } };
@@ -273,11 +274,37 @@ async function fall(name, fn) {
 
   await fall('Beschreibungen: Suche nennt scope/owner, Save nennt confirmed, keine geschweiften Klammern neu', async () => {
     const d = name => wf.nodes.find(x => x.name === name).parameters.description;
-    assert.match(d('Memory Search'), /owner_user_id \(who saved it/);
+    assert.match(d('Memory Search'), /owner_user_id and owner_name \(who saved it/);
     assert.match(d('Memory Save'), /confirmed=true only after an explicit yes/);
     assert.match(d('Memory Update'), /own entries \(owner_user_id = you\)/);
     assert.match(d('Memory Delete'), /forget_entity is admin-only/);
     assert.ok(!/[{}]/.test(d('Memory Save')) && !/[{}]/.test(d('Memory Delete')), 'Save/Delete ohne geschweifte Klammern');
+  });
+
+  console.log('--- Nacharbeiten aus dem Review ---');
+  await fall('Team-Eintrag aus einem geplanten Lauf wird ohne Vorschau gespeichert', async () => {
+    const u = umgebung({ source: 'scheduled_task' });
+    const r = await werkzeug('Memory Save', { content: 'Kampagne X startet im Mai', scope: 'team' }, u);
+    assert.notEqual(r.status, 'preview');
+    assert.equal(nur(u.calls, 'POST', '/memory_long').length, 1);
+  });
+  await fall('Team-Eintrag im Gespraech verlangt weiterhin die Vorschau', async () => {
+    const u = umgebung({ source: 'web' });
+    const r = await werkzeug('Memory Save', { content: 'Kampagne X startet im Mai', scope: 'team' }, u);
+    assert.equal(r.status, 'preview');
+    assert.equal(nur(u.calls, 'POST', '/memory_long').length, 0);
+  });
+  await fall('Suche haengt den Anzeigenamen an den Eintrag', async () => {
+    const u = umgebung({ rows: [{ id: 5, content: 'Regel', scope: 'team', owner_user_id: 'web:florian' }], profile: [{ user_id: 'web:florian', display_name: 'Florian Schumacher' }] });
+    const r = await werkzeug('Memory Search', 'Regel', u);
+    assert.equal(r[0].owner_name, 'Florian Schumacher');
+    assert.equal(nur(u.calls, 'GET', '/user_profiles?user_id=in.').length, 1);
+  });
+  await fall('Suche bleibt nutzbar, wenn die Profilabfrage scheitert', async () => {
+    const u = umgebung({ rows: [{ id: 5, content: 'Regel', scope: 'team', owner_user_id: 'web:florian' }], profilFehler: true });
+    const r = await werkzeug('Memory Search', 'Regel', u);
+    assert.equal(r[0].owner_user_id, 'web:florian');
+    assert.ok(!r[0].owner_name);
   });
 
   console.log('\n' + (n - fehler) + ' von ' + n + ' Faellen bestanden');
