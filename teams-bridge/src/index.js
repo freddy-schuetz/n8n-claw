@@ -258,6 +258,10 @@ async function installationMelden(m) {
         log('installation: Mitglieder HTTP', r.status, (await r.text()).slice(0, 120));
       }
     } catch (e) { log('installation: Mitglieder', e.message); }
+    // Ohne Person aus der Abfrage die Sperre freigeben: das zweite Ereignis derselben
+    // Installation (Teams schickt zwei) darf die Abfrage wiederholen. Doppelt
+    // begruesst wird trotzdem nicht, der Adapter erkennt die Verlaufszeile.
+    if (!person.aadObjectId && !person.name) installiertKuerzlich.delete(m.aadObjectId);
 
     const nutzlast = {
       event: 'installiert',
