@@ -111,20 +111,25 @@ function anBot(activity) {
 
 // --- Token fuer ausgehende Nachrichten, gecacht bis kurz vor Ablauf.
 let botToken = { wert: null, bis: 0 };
+let botTokenLauf = null; // laufender Abruf, damit parallele Aufrufer nicht je ein Token holen
 async function getBotToken() {
   if (botToken.wert && Date.now() < botToken.bis - 60000) return botToken.wert;
-  const url = 'https://login.microsoftonline.com/' + encodeURIComponent(TENANT_ID) + '/oauth2/v2.0/token';
-  const body = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: APP_ID,
-    client_secret: APP_PASSWORD,
-    scope: 'https://api.botframework.com/.default'
-  });
-  const r = await fetch(url, { method: 'POST', body });
-  if (!r.ok) throw new Error('Bot-Token: HTTP ' + r.status + ' ' + (await r.text()).slice(0, 200));
-  const j = await r.json();
-  botToken = { wert: j.access_token, bis: Date.now() + (j.expires_in || 3600) * 1000 };
-  return botToken.wert;
+  if (botTokenLauf) return botTokenLauf;
+  botTokenLauf = (async () => {
+    const url = 'https://login.microsoftonline.com/' + encodeURIComponent(TENANT_ID) + '/oauth2/v2.0/token';
+    const body = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: APP_ID,
+      client_secret: APP_PASSWORD,
+      scope: 'https://api.botframework.com/.default'
+    });
+    const r = await fetch(url, { method: 'POST', body });
+    if (!r.ok) throw new Error('Bot-Token: HTTP ' + r.status + ' ' + (await r.text()).slice(0, 200));
+    const j = await r.json();
+    botToken = { wert: j.access_token, bis: Date.now() + (j.expires_in || 3600) * 1000 };
+    return botToken.wert;
+  })().finally(() => { botTokenLauf = null; });
+  return botTokenLauf;
 }
 
 async function sende(serviceUrl, conversationId, aktivitaet, versuch = 0) {
@@ -182,6 +187,118 @@ function boteErlaubt() {
   return true;
 }
 
+// --- Mitgliedsereignisse. Teams meldet dem Bot, wenn Rupert fuer eine Person
+// installiert wird (auch durch die Admin-Richtlinie) oder wieder verschwindet:
+// installationUpdate mit action add/remove, im persoenlichen Chat zusaetzlich
+// ein conversationUpdate, in dem der Bot unter membersAdded steht. Bis 08.09.2026
+// wurden beide ungelesen verworfen, deshalb war nicht zu sehen, wer angekommen
+// ist. Jetzt werden sie protokolliert, und eine neue Installation im
+// persoenlichen Chat geht an den Adapter, der das Profil anlegt und begruesst.
+const kurz = s => String(s || '').slice(0, 8);
+function mitgliedschaftAusActivity(activity) {
+  const a = activity || {};
+  const from = a.from || {};
+  const conv = a.conversation || {};
+  const liste = l => (Array.isArray(l) ? l : []).filter(m => m && typeof m === 'object');
+  const botId = ('28:' + APP_ID).toLowerCase();
+  const istBot = m => String(m.id || '').toLowerCase() === botId;
+  const hinzu = liste(a.membersAdded);
+  const weg = liste(a.membersRemoved);
+  const personHinzu = hinzu.find(m => !istBot(m) && m.aadObjectId) || {};
+  return {
+    typ: String(a.type || ''),
+    action: String(a.action || ''),
+    aadObjectId: from.aadObjectId || personHinzu.aadObjectId || '',
+    fromName: from.name || personHinzu.name || '',
+    fromId: from.id || personHinzu.id || '',
+    conversationId: conv.id || '',
+    conversationType: conv.conversationType || '',
+    tenantId: ((a.channelData || {}).tenant || {}).id || conv.tenantId || '',
+    serviceUrl: a.serviceUrl || '',
+    hinzu: hinzu.map(m => m.aadObjectId || m.id || ''),
+    weg: weg.map(m => m.aadObjectId || m.id || ''),
+    botHinzu: hinzu.some(istBot),
+    botWeg: weg.some(istBot),
+    zeit: a.timestamp || ''
+  };
+}
+// Neue Installation im persoenlichen Chat? Beide Ereignisformen zaehlen, weil
+// Microsoft fuer die Vorinstallation per Richtlinie nicht zusichert, welches
+// davon kommt. Dubletten faengt installationMelden ueber die Objekt-ID ab.
+function istNeueInstallation(m) {
+  if (!m || m.conversationType !== 'personal' || !m.aadObjectId) return false;
+  if (m.typ === 'installationUpdate') return m.action === 'add';
+  if (m.typ === 'conversationUpdate') return m.botHinzu && !m.botWeg;
+  return false;
+}
+const installiertKuerzlich = new Map();
+async function installationMelden(m) {
+  if (!m.conversationId || !m.serviceUrl) return log('installation: ohne Konversation oder Dienstadresse, uebersprungen');
+  const jetzt = Date.now();
+  for (const [k, t] of installiertKuerzlich) if (jetzt - t > 10 * 60 * 1000) installiertKuerzlich.delete(k);
+  if (installiertKuerzlich.has(m.aadObjectId)) return log('installation: schon gemeldet', kurz(m.aadObjectId));
+  installiertKuerzlich.set(m.aadObjectId, jetzt);
+  if (m.tenantId && m.serviceUrl) dienstAdresse.set(m.tenantId, m.serviceUrl);
+
+  try {
+    // Im Installationsereignis fehlt der Name meist. Die Mitgliederabfrage der
+    // Konversation liefert Anzeigename sowie Vor- und Nachname. Die Mailadresse
+    // liefert sie auch, die wird aber nicht weitergegeben: der Adapter braucht
+    // sie nicht, und n8n bewahrt Eingabedaten von Executions auf.
+    let person = {};
+    try {
+      const token = await getBotToken();
+      const url = String(m.serviceUrl).replace(/\/$/, '') + '/v3/conversations/' + encodeURIComponent(m.conversationId) + '/members';
+      const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      if (r.ok) {
+        const mitglieder = await r.json();
+        const l = Array.isArray(mitglieder) ? mitglieder.filter(x => x && typeof x === 'object') : [];
+        person = l.find(x => x.aadObjectId === m.aadObjectId) || (l.length === 1 ? l[0] : {});
+      } else {
+        log('installation: Mitglieder HTTP', r.status, (await r.text()).slice(0, 120));
+      }
+    } catch (e) { log('installation: Mitglieder', e.message); }
+
+    const nutzlast = {
+      event: 'installiert',
+      text: '',
+      aadObjectId: m.aadObjectId,
+      fromName: person.name || m.fromName || '',
+      givenName: person.givenName || '',
+      surname: person.surname || '',
+      fromId: person.id || m.fromId || '',
+      conversationId: m.conversationId,
+      conversationType: m.conversationType,
+      serviceUrl: m.serviceUrl,
+      tenantId: person.tenantId || m.tenantId || '',
+      activityId: ''
+    };
+    log('installation gemeldet:', nutzlast.fromName || '(ohne Name)', '|', kurz(m.aadObjectId));
+    const r = await fetch(N8N_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Bridge-Secret': BRIDGE_SECRET },
+      body: JSON.stringify(nutzlast)
+    });
+    if (!r.ok) throw new Error('n8n HTTP ' + r.status);
+  } catch (e) {
+    // Sperre zuruecknehmen: das zweite Ereignis derselben Installation darf es
+    // dann noch einmal versuchen.
+    installiertKuerzlich.delete(m.aadObjectId);
+    throw e;
+  }
+}
+
+// Meldungen nacheinander mit Abstand, damit ein Rollout der Admin-Richtlinie
+// an viele Personen auf einmal nicht in einen Schwall aus Token-Abrufen,
+// Mitgliederabfragen und Begruessungen ausartet (Bot-Framework-Limits).
+let installWarteschlange = Promise.resolve();
+function installationEinreihen(m) {
+  installWarteschlange = installWarteschlange
+    .then(() => installationMelden(m))
+    .catch(e => log('installation fehlgeschlagen:', e.message))
+    .then(() => new Promise(res => setTimeout(res, 400)));
+}
+
 // --- Eingang von Teams -------------------------------------------------------
 app.post('/messages', async (req, res) => {
   const activity = req.body || {};
@@ -198,6 +315,19 @@ app.post('/messages', async (req, res) => {
 
   try {
     if (schonGesehen(activity.id)) return log('doppelt, ignoriert:', activity.id);
+    if (activity.type === 'installationUpdate' || activity.type === 'conversationUpdate') {
+      // Eigener Fehlerrahmen: hier darf nie die Entschuldigung aus dem catch
+      // unten in den Chat gehen, die Person hat ja nichts geschrieben.
+      try {
+        const m = mitgliedschaftAusActivity(activity);
+        log('mitgliedschaft:', m.typ, m.action || (m.botHinzu ? 'bot hinzu' : m.botWeg ? 'bot weg' : ''),
+          '|', m.conversationType || '?', '|', m.fromName || '(ohne Name)', kurz(m.aadObjectId),
+          '| hinzu', m.hinzu.map(kurz).join(',') || '-', '| weg', m.weg.map(kurz).join(',') || '-',
+          '| tenant', kurz(m.tenantId), '| konv', kurz(m.conversationId));
+        if (istNeueInstallation(m)) installationEinreihen(m);
+      } catch (e) { log('mitgliedschaft: Fehler', e.message); }
+      return;
+    }
     if (activity.type !== 'message') return log('ignoriert, Typ', activity.type);
 
     const imKanal = (activity.conversation || {}).conversationType !== 'personal';
@@ -306,4 +436,9 @@ app.get('/health', (req, res) => res.json({
   dienstAdressen: dienstAdresse.size
 }));
 
-app.listen(PORT, () => log('Teams Bridge laeuft auf Port', PORT));
+if (require.main === module) {
+  app.listen(PORT, () => log('Teams Bridge laeuft auf Port', PORT));
+}
+
+// Fuer die Tests (tests/teams-bridge-mitgliedschaft.test.js), ohne Server.
+module.exports = { mitgliedschaftAusActivity, istNeueInstallation };
