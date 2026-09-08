@@ -42,11 +42,15 @@ function makeHelpers(schema, sink) {
   };
 }
 
-async function run({ file, node, schema, modelArgs, identity }) {
+async function run({ file, node, schema, modelArgs, identity, profile }) {
   const sink = [];
   sink.sent = undefined; sink.audit = undefined;
   const $ = (name) => ({
     first: () => {
+      if (name === 'Load User Profile') {
+        if (profile === undefined) throw new Error('kein Load User Profile');
+        return { json: profile };
+      }
       if (identity === undefined) throw new Error('kein Merge Input');
       return { json: identity };
     }
@@ -162,6 +166,57 @@ function pruefe(name, bedingung, detail) {
 
   r = await run({ ...SUB, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { key: 'OM-1', issue_type: 'Task' } });
   pruefe('Sub-Agent: issue_type normalisiert', r.sent && r.sent.issuetype === 'Task', r.sent);
+
+  console.log('--- Alias v3 ---');
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { issueKey: 'OM-1' } });
+  pruefe('issueKey wird zu key', r.sent && r.sent.key === 'OM-1' && !('issueKey' in r.sent), r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { ticket: 'OM-2' } });
+  pruefe('ticket wird zu key', r.sent && r.sent.key === 'OM-2', r.sent);
+
+  const SCHEMA_TO = { type: 'object', properties: { caller: { type: 'string' }, to: { type: 'string' }, subject: { type: 'string' } }, required: ['caller', 'to'] };
+  r = await run({ ...AGENT, schema: SCHEMA_TO, identity: ICH, modelArgs: { recipient_email: 'a@b.at', subject: 'Hi' } });
+  pruefe('recipient_email wird zu to', r.sent && r.sent.to === 'a@b.at' && !('recipient_email' in r.sent), r.sent);
+
+  const SCHEMA_DUE = { type: 'object', properties: { key: { type: 'string' }, duedate: { type: 'string' } }, required: [] };
+  r = await run({ ...AGENT, schema: SCHEMA_DUE, identity: ICH, modelArgs: { key: 'OM-1', due: '2026-09-10' } });
+  pruefe('due wird zu duedate (wenn erlaubt)', r.sent && r.sent.duedate === '2026-09-10' && !('due' in r.sent), r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_DUE, identity: ICH, modelArgs: { key: 'OM-1', due_date: '2026-09-11' } });
+  pruefe('due_date wird zu duedate (normalisiert)', r.sent && r.sent.duedate === '2026-09-11', r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { key: 'OM-1', due: '2026-09-10' } });
+  pruefe('due ohne Zielfeld bleibt Abweisung', r.sent === undefined && /unknown args \[due\]/.test(r.out), r.out.slice(0, 120));
+
+  r = await run({ ...AGENT, schema: SCHEMA_TO, identity: ICH, modelArgs: { to: 'a@b.at', from_display: 'Gretel', sender: 'x', from: 'y' } });
+  pruefe('from_display/sender/from werden verworfen, caller kommt vom Aufrufer', r.sent && !('from_display' in r.sent) && !('sender' in r.sent) && !('from' in r.sent) && r.sent.caller === 'entra:95625b4e', r.sent);
+
+  const SCHEMA_OHNE_CALLER_TO = { type: 'object', properties: { to: { type: 'string' } }, required: [] };
+  r = await run({ ...AGENT, schema: SCHEMA_OHNE_CALLER_TO, identity: ICH, modelArgs: { to: 'a@b.at', from_display: 'Gretel' } });
+  pruefe('ohne caller im Schema bleibt from_display eine Abweisung', r.sent === undefined && /unknown args \[from_display\]/.test(r.out), r.out.slice(0, 120));
+
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { key: 'OM-1', fields: '{"assignee":"acc-1","description":"Neu"}' } });
+  pruefe('fields als JSON-String wird ausgepackt', r.sent && r.sent.assignee === 'acc-1' && r.sent.description === 'Neu' && !('fields' in r.sent), r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_JIRA, identity: ICH, modelArgs: { key: 'OM-1', fields: '{kaputt' } });
+  pruefe('kaputter JSON-String bleibt Abweisung', r.sent === undefined && /unknown args \[fields\]/.test(r.out), r.out.slice(0, 120));
+
+  const PROFIL = { display_name: 'Gretel Muster', timezone: 'Europe/Vienna' };
+  const SCHEMA_NAME = { type: 'object', properties: { caller: { type: 'string' }, caller_name: { type: 'string' }, subject: { type: 'string' } }, required: ['caller'] };
+  r = await run({ ...AGENT, schema: SCHEMA_NAME, identity: ICH, profile: PROFIL, modelArgs: { subject: 'Termin', caller_name: 'Falscher Name' } });
+  pruefe('caller_name aus dem Profil, Modellwert ueberschrieben', r.sent && r.sent.caller_name === 'Gretel Muster' && r.sent.caller === 'entra:95625b4e', r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_MIT_CALLER, identity: ICH, profile: PROFIL, modelArgs: { subject: 'Termin' } });
+  pruefe('caller_name nicht gesetzt, wenn das Schema es nicht kennt', r.sent && !('caller_name' in r.sent), r.sent);
+
+  r = await run({ ...AGENT, schema: SCHEMA_NAME, identity: ICH, modelArgs: { subject: 'Termin' } });
+  pruefe('ohne Profil-Knoten bleibt caller_name leer', r.sent && r.sent.caller_name === '', r.sent);
+
+  r = await run({ ...SUB, schema: SCHEMA_NAME, identity: ICH, modelArgs: { subject: 'Termin', caller_name: 'Falscher Name' } });
+  pruefe('Sub-Agent: caller und caller_name leer', r.sent && r.sent.caller === '' && r.sent.caller_name === '', r.sent);
+
+  r = await run({ ...SUB, schema: SCHEMA_TO, identity: ICH, modelArgs: { recipient_email: 'a@b.at', from_display: 'X' } });
+  pruefe('Sub-Agent: recipient_email zu to, from_display verworfen', r.sent && r.sent.to === 'a@b.at' && !('from_display' in r.sent), r.sent);
 
   console.log('--- Sub-Agent ---');
   r = await run({ ...SUB, schema: SCHEMA_MIT_CALLER, identity: ICH, modelArgs: { subject: 'Termin', caller: 'entra:FREMDE-PERSON' } });

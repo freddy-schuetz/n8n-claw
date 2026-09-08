@@ -743,6 +743,18 @@ if [ -n "$USERTOK_ERRORS" ]; then
 fi
 echo "  ✅ Per-user OAuth tokens applied"
 
+# Identity map: login-based keys (web:name, telegram:id) to the Entra object id,
+# so the same person keeps one history across web and Microsoft Teams.
+echo "  Applying user identity map migration..."
+IDMAP_OUTPUT=$(LANG=C LC_ALL=C PGPASSWORD=$POSTGRES_PASSWORD psql -h localhost -U postgres -d postgres \
+  -f supabase/migrations/013_user_identity_map.sql 2>&1)
+IDMAP_ERRORS=$(echo "$IDMAP_OUTPUT" | grep -i "error" | head -5)
+if [ -n "$IDMAP_ERRORS" ]; then
+  echo -e "  ${YELLOW}⚠️  Identity map migration warnings:${NC}"
+  echo "$IDMAP_ERRORS" | while read line; do echo "    $line"; done
+fi
+echo "  ✅ User identity map applied"
+
 # Reload PostgREST schema cache so new tables are immediately available via API
 docker kill --signal=SIGUSR1 $(docker ps -q --filter name=rest) 2>/dev/null || true
 

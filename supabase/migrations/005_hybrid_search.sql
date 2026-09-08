@@ -1,5 +1,8 @@
 --
--- Hybrid Search Migration (v1.2.0)
+-- Hybrid Search Migration (v1.2.1)
+--
+-- v1.2.1: scope und owner in der Ausgabe (scope, owner_user_id), damit der Agent
+--         sieht, wer einen Eintrag angelegt hat und ob er ihn aendern darf.
 --
 -- Adds: tsvector full-text search, RRF hybrid search RPC, time decay scoring
 -- Requires: 004_knowledge.sql (enriched memory columns: tags, entity_name, source)
@@ -113,7 +116,9 @@ CREATE FUNCTION public.hybrid_search_memory(
   entity_name text,
   source text,
   rrf_score double precision,
-  decay_factor double precision
+  decay_factor double precision,
+  scope text,
+  owner_user_id text
 )
 LANGUAGE plpgsql
 AS $$
@@ -197,7 +202,9 @@ BEGIN
     f.entity_name,
     f.source,
     (fused.rrf_score * decay.factor)::double precision AS rrf_score,
-    decay.factor::double precision AS decay_factor
+    decay.factor::double precision AS decay_factor,
+    f.scope,
+    f.owner_user_id
   FROM fused
   JOIN filtered f ON f.id = fused.id
   CROSS JOIN LATERAL (
@@ -231,3 +238,6 @@ GRANT ALL ON FUNCTION public.hybrid_search_memory(
 GRANT ALL ON FUNCTION public.hybrid_search_memory(
   public.vector, text, integer, text, text, text[], boolean, integer, text
 ) TO service_role;
+
+-- PostgREST: Schema-Cache neu laden, sonst kennt die API den neuen Rueckgabetyp nicht.
+NOTIFY pgrst, 'reload schema';
