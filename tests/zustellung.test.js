@@ -90,6 +90,9 @@ function pruefe(name, ok, info) { n++; if (!ok) f++; console.log((ok ? 'PASS ' :
   console.log('--- Eingabeformen ---');
   r = await run([{ user_id: 'web:sophie', chat_id: 'web:sophie', checkerMessage: 'Neu im Postfach', im_verlauf: false }]);
   pruefe('checkerMessage (Heartbeat) wird als Text genommen', r.sink.sends[0].text === 'Neu im Postfach' && r.out[0].weg === 'teams', r.sink);
+  r = await run([{ id: 42, user_id: 'web:sophie', chat_id: 'web:sophie', message: 'Pruefe jede Stunde das Postfach auf Rechnungen', checkerMessage: 'Neu: Rechnung von Adform', notify: true }]);
+  pruefe('Heartbeat-Item: Pruefergebnis (checkerMessage) geht raus, nicht die Anweisung (message)', r.sink.sends[0].text === 'Neu: Rechnung von Adform' && r.sink.conv[0].content === 'Neu: Rechnung von Adform', r.sink);
+  pruefe('Erinnerungs-Id wird im Datensatz durchgereicht', r.out[0].id === 42, r.out[0]);
   r = await run([{ user_id: 'web:sophie', chat_id: 'web:sophie', text: '   ' }]);
   pruefe('ohne Text: weg keiner, nichts gesendet, nichts geschrieben', r.out[0].weg === 'keiner' && r.sink.sends.length === 0 && r.sink.conv.length === 0, r.out[0]);
   r = await run([{ user_id: 'telegram:1', chat_id: '1', text: 'a' }, { user_id: 'web:florian', chat_id: 'web:florian', text: 'b' }, { user_id: 'web:x', chat_id: 'web:x', text: 'c' }]);

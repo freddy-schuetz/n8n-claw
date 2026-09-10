@@ -1494,7 +1494,7 @@ with open(f, 'w') as fh:
     json.dump(wf, fh, indent=2, ensure_ascii=False)
 " "$out" "${TELEGRAM_CRED_ID:-}" "${POSTGRES_CRED_ID:-}" "${ANTHROPIC_CRED_ID:-}" "${OPENAI_CRED_ID:-}" "${HEADERAUTH_CRED_ID:-}" "${EXISTING_SLACK_ID:-}" "${LLM_CRED_ID:-}" "${LLM_CRED_TYPE:-}"
 done
-IMPORT_ORDER="error-notification mcp-client reminder-factory reminder-runner mcp-weather-example workflow-builder mcp-builder mcp-library-manager agent-library-manager sub-agent-runner browser-use credential-form oauth-callback memory-consolidation background-checker heartbeat webhook-adapter agent-status agent-history n8n-claw-agent"
+IMPORT_ORDER="error-notification mcp-client zustellung reminder-factory reminder-runner mcp-weather-example workflow-builder mcp-builder mcp-library-manager agent-library-manager sub-agent-runner browser-use credential-form oauth-callback memory-consolidation background-checker heartbeat webhook-adapter agent-status agent-history n8n-claw-agent"
 
 # n8n Public API settings whitelist — the PUT endpoint rejects any settings
 # field not in its OpenAPI schema (additionalProperties: false), even though
@@ -1614,6 +1614,7 @@ ALLOWED = set('${N8N_SETTINGS_WHITELIST}'.split(','))
 raw = sys.stdin.read()
 replacements = {
   'REPLACE_REMINDER_FACTORY_ID': '${WF_IDS[reminder-factory]}',
+  'REPLACE_ZUSTELLUNG_ID': '${WF_IDS[zustellung]}',
   'REPLACE_WORKFLOW_BUILDER_ID': '${WF_IDS[workflow-builder]}',
 
   'REPLACE_MCP_BUILDER_ID':      '${WF_IDS[mcp-builder]}',
@@ -1690,6 +1691,7 @@ import sys, json
 ALLOWED = set('${N8N_SETTINGS_WHITELIST}'.split(','))
 raw = sys.stdin.read()
 raw = raw.replace('REPLACE_AGENT_WORKFLOW_ID', '${AGENT_WF_ID_FOR_RUNNER}')
+raw = raw.replace('REPLACE_ZUSTELLUNG_ID', '${WF_IDS[zustellung]}')
 wf = json.loads(raw)
 nodes = wf.get('nodes') or wf.get('activeVersion',{}).get('nodes',[])
 conns = wf.get('connections') or wf.get('activeVersion',{}).get('connections',{})
@@ -1716,6 +1718,7 @@ import sys, json
 ALLOWED = set('${N8N_SETTINGS_WHITELIST}'.split(','))
 raw = sys.stdin.read()
 raw = raw.replace('REPLACE_AGENT_WORKFLOW_ID', '${AGENT_WF_ID_FOR_HB}')
+raw = raw.replace('REPLACE_ZUSTELLUNG_ID', '${WF_IDS[zustellung]}')
 raw = raw.replace('REPLACE_BACKGROUND_CHECKER_ID', '${WF_IDS[background-checker]}')
 wf = json.loads(raw)
 nodes = wf.get('nodes') or wf.get('activeVersion',{}).get('nodes',[])

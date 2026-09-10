@@ -60,6 +60,16 @@ const NACHRICHT = { id: 'AAMk1', subject: 'Rechnung', from: { emailAddress: { na
   pruefe('403 -> "nicht freigegeben", keine Rohmeldung', /nicht freigegeben/.test(r.out.error) && !/status code/.test(r.out.error), r.out);
   r = await run(MAIL, { action: 'search_messages', mailbox: 'gibtsnicht@salzburgerland.com' }, { graph: () => { throw graphFehler(404); } });
   pruefe('404 -> "gibt es im Mandanten nicht"', /gibt es im Mandanten nicht/.test(r.out.error), r.out);
+  r = await run(MAIL, { action: 'search_messages', mailbox: 'geheim@salzburgerland.com' }, { graph: () => { const e = new Error('Request failed with status code 403'); throw e; } });
+  pruefe('403 nur in der Fehlermeldung (kein Statusfeld) -> trotzdem "nicht freigegeben"', /nicht freigegeben/.test(r.out.error), r.out);
+  r = await run(MAIL, { action: 'search_messages', mailbox: 'geheim@salzburgerland.com' }, { graph: () => { const e = new Error('x'); e.response = { body: { error: { code: 'ErrorAccessDenied', message: 'Access is denied' } } }; throw e; } });
+  pruefe('nur error.code ErrorAccessDenied -> "nicht freigegeben"', /nicht freigegeben/.test(r.out.error), r.out);
+  r = await run(MAIL, { action: 'get_message', message_id: 'AAMkX', mailbox: 'info@salzburgerland.com' }, { graph: () => { const e = graphFehler(404); e.response.body.error.code = 'ErrorItemNotFound'; throw e; } });
+  pruefe('get_message 404 ErrorItemNotFound -> Nachricht nicht gefunden, nicht "Postfach gibt es nicht"', /Nachricht wurde im Postfach info@salzburgerland.com nicht gefunden/.test(r.out.error), r.out);
+  r = await run(MAIL, { action: 'reply_draft', message_id: 'AAMkX', body: 'Danke', mailbox: 'info@salzburgerland.com' }, {});
+  pruefe('reply_draft mit mailbox wird klar abgelehnt (keine Schreibberechtigung)', /nur fuer Nachrichten im eigenen Postfach/.test(r.out.error) && !r.calls.some(u => u.includes('createReply')), r.out);
+  r = await run(MAIL, { action: 'create_draft', subject: 'x', body: 'y', mailbox: 'info@salzburgerland.com' }, {});
+  pruefe('create_draft mit mailbox wird klar abgelehnt', /nur im eigenen Postfach/.test(r.out.error), r.out);
   r = await run(MAIL, { action: 'search_messages', mailbox: 'Sara' }, {});
   pruefe('mailbox ohne @ wird abgewiesen, bevor Graph gefragt wird', /muss eine E-Mail-Adresse sein/.test(r.out.error) && !r.calls.some(u => u.includes('graph.microsoft.com/v1.0/users')), r.out);
   r = await run(MAIL, { action: 'search_messages' }, { graph: () => { throw graphFehler(403); } });

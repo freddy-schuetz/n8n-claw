@@ -125,7 +125,19 @@ const AGENT = 'workflows/n8n-claw-agent.json';
     r = await sr({ action: 'list_reminders', userId: 'web:florian', chatId: 'teams:a:1bug' });
     pruefe('list_reminders filtert auf die Person', r.calls[0].method === 'GET' && /user_id=eq\.web%3Aflorian/.test(r.calls[0].url) && /\[4\]/.test(r.out.message), [r.calls[0].url, r.out]);
     r = await sr({ action: 'delete_reminder', target_id: '4', userId: 'web:florian', chatId: 'teams:a:1bug' });
-    pruefe('target_id aus Einzelfeld kommt an', r.calls[0].method === 'DELETE' && /id=eq\.4/.test(r.calls[0].url), r.calls[0]);
+    pruefe('target_id aus Einzelfeld kommt an, Loeschen nur mit eigener Kennung', r.calls[0].method === 'DELETE' && /id=eq\.4&user_id=eq\.web%3Aflorian/.test(r.calls[0].url) && r.out.success === true, r.calls[0]);
+    r = await sr({ action: 'edit_reminder', target_id: '4', time: '2026-10-02T09:00:00+02:00', userId: 'web:hannah', chatId: 'web:hannah' });
+    pruefe('edit_reminder filtert auf die eigene Kennung', r.calls[0].method === 'PATCH' && /user_id=eq\.web%3Ahannah/.test(r.calls[0].url), r.calls[0]);
+    // Fremde Zeile: PostgREST liefert mit return=representation eine leere Liste
+    {
+      const calls2 = [];
+      const h = { async httpRequest(o) { calls2.push(o); return []; } };
+      const fn2 = new AsyncFunction('$input', 'helpers', CODE + '\n//# sourceURL=save-reminder.js');
+      const out2 = (await fn2({ first: () => ({ json: { action: 'delete_reminder', target_id: '4', userId: 'web:hannah', chatId: 'web:hannah' } }) }, h))[0].json;
+      pruefe('fremde Erinnerung: kein Treffer -> Fehlermeldung statt "deleted"', out2.success === false && /gehoert einer anderen Person/.test(out2.message), out2);
+      const out3 = (await fn2({ first: () => ({ json: { action: 'disable', target_id: '7', userId: 'web:hannah', chatId: 'web:hannah' } }) }, h))[0].json;
+      pruefe('fremde geplante Aktion: disable ohne Treffer -> Fehlermeldung', out3.success === false && /gehoert einer anderen Person/.test(out3.message) && calls2.every(o => /user_id=eq\.web%3Ahannah/.test(String(o.url)) || o.method === 'GET'), out3);
+    }
     r = await sr({ type: 'recurring', name: 'Briefing', instruction: 'Fasse zusammen', schedule: '{"type":"daily","time":"08:00"}', userId: 'web:florian', chatId: 'teams:a:1bug', message: '' });
     pruefe('recurring: schedule als JSON-String wird gelesen, Zeile unter der Person', r.calls[0].method === 'POST' && /scheduled_actions/.test(r.calls[0].url) && r.calls[0].body.user_id === 'web:florian' && r.calls[0].body.chat_id === 'teams:a:1bug' && r.calls[0].body.schedule.type === 'daily' && /daily at 08:00/.test(r.out.message) && /Teams-Chat/.test(r.out.message), [r.calls[0], r.out]);
     pruefe('kein Betreiber-Platzhalter mehr im Code', !/TELEGRAM_CHAT_ID/.test(wf('workflows/reminder-factory.json').nodes.find(x => x.name === 'Save Reminder').parameters.jsCode));
@@ -160,8 +172,19 @@ const AGENT = 'workflows/n8n-claw-agent.json';
     const h2 = { async httpRequest(o) { patched.push(o.url); return {}; } };
     const $ = (name) => ({ all: () => rows.map(x => ({ json: x })) });
     const fn2 = new AsyncFunction('helpers', '$', '$input', MD);
-    const md = await fn2(h2, $, { all: () => [{ json: {} }] });
-    pruefe('Mark Done markiert alle faelligen Zeilen genau einmal', patched.length === 4 && patched.every(u => /reminders\?id=eq\.\d+/.test(u)) && md.length === 4, patched);
+    // Zweig Zustellung: Datensaetze tragen die Erinnerungs-Id -> nur diese werden markiert
+    const md = await fn2(h2, $, { all: () => [{ json: { id: 4, weg: 'teams' } }, { json: { id: 7, weg: 'verlauf' } }] });
+    pruefe('Mark Done markiert nur die Zeilen des eigenen Zweigs (Ids aus der Zustellung)', patched.length === 2 && patched.some(u => /id=eq\.4$/.test(u)) && patched.some(u => /id=eq\.7$/.test(u)) && md.length === 2, patched);
+    // Zweig Telegram: Telegram-Antwort ohne id -> Paarung zur Eingangszeile
+    patched.length = 0;
+    const $tg = (name) => ({ all: () => rows.map(x => ({ json: x })), itemMatching: (i) => ({ json: rows[2] }) });
+    const md2 = await fn2(h2, $tg, { all: () => [{ json: { message_id: 55, chat: { id: 1810565648 } } }] });
+    pruefe('Telegram-Zweig: Id ueber itemMatching, genau eine Zeile', patched.length === 1 && /id=eq\.6$/.test(patched[0]) && md2.length === 1, patched);
+    // Rueckfall: nichts ergibt eine Id -> alle faelligen Zeilen (nie jede Minute wiederholen)
+    patched.length = 0;
+    const $leer = (name) => ({ all: () => rows.map(x => ({ json: x })), itemMatching: () => { throw new Error('keine Paarung'); } });
+    const md3 = await fn2(h2, $leer, { all: () => [{ json: { ok: true } }] });
+    pruefe('Rueckfall ohne Id: alle faelligen Zeilen', patched.length === 4 && md3.length === 4, patched);
   }
 
   console.log('--- Heartbeat ---');

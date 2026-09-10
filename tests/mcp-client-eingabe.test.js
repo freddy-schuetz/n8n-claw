@@ -100,6 +100,10 @@ const CALL = (name, args) => ({ mcp_url: 'https://mcp.example/conf', tool_name: 
   pruefe('Obergrenze steht im Protokoll', r.sink.audit.length === 1 && r.sink.audit[0].status === 'rejected' && r.sink.audit[0].execution_id === 'exec-r6', r.sink.audit);
   r = await run(SUB, CALL('get_page', { page_id: '1' }), { bisher: 61 });
   pruefe('Sub-Agent: Obergrenze greift ebenfalls', !r.sink.call && /Obergrenze/.test(r.out), r.out.slice(0, 80));
+  r = await run(AGENT, undefined, { bisher: 60 });
+  pruefe('leerer Aufruf bei erreichter Obergrenze: Obergrenze wird gemeldet (Schleife aus leeren Aufrufen endet)', /Obergrenze erreicht/.test(r.out) && r.sink.audit[0].status === 'rejected', r.out.slice(0, 80));
+  r = await run(AGENT, { mcp_url: '', tool_name: 'x', arguments: {} }, { bisher: 60 });
+  pruefe('unvollstaendiger Aufruf zaehlt ebenfalls gegen die Obergrenze', /Obergrenze erreicht/.test(r.out), r.out.slice(0, 80));
 
   console.log('--- Werkzeugname ---');
   r = await run(AGENT, CALL('list_comments', { page_id: '5' }));
@@ -107,6 +111,8 @@ const CALL = (name, args) => ({ mcp_url: 'https://mcp.example/conf', tool_name: 
   pruefe('Protokoll traegt den echten Werkzeugnamen', r.sink.audit[0].tool_name === 'list_comments_on_page', r.sink.audit[0]);
   r = await run(AGENT, CALL('GetPage', { page_id: '5' }));
   pruefe('GetPage -> get_page (normalisiert gleich)', r.sink.call && r.sink.call.name === 'get_page', r.sink.call);
+  r = await run(AGENT, CALL('get_pag', { page_id: '5' }));
+  pruefe('Praefix ohne Unterstrich (get_pag) wird NICHT geraten', !r.sink.call && /gibt es auf diesem Server nicht/.test(r.out), r.out.slice(0, 120));
   r = await run(AGENT, CALL('delete_everything', {}));
   pruefe('unbekanntes Werkzeug: Liste statt Serverfehler', !r.sink.call && /gibt es auf diesem Server nicht/.test(r.out) && /get_page, get_page_by_title/.test(r.out), r.out.slice(0, 160));
   pruefe('unbekanntes Werkzeug ist protokolliert (rejected)', r.sink.audit.length === 1 && r.sink.audit[0].status === 'rejected', r.sink.audit);
