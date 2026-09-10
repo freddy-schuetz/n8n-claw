@@ -59,7 +59,7 @@ const NACHRICHT = { id: 'AAMk1', subject: 'Rechnung', from: { emailAddress: { na
   r = await run(MAIL, { action: 'search_messages', mailbox: 'geheim@salzburgerland.com' }, { graph: () => { throw graphFehler(403); } });
   pruefe('403 -> "nicht freigegeben", keine Rohmeldung', /nicht freigegeben/.test(r.out.error) && !/status code/.test(r.out.error), r.out);
   r = await run(MAIL, { action: 'search_messages', mailbox: 'gibtsnicht@salzburgerland.com' }, { graph: () => { throw graphFehler(404); } });
-  pruefe('404 -> "gibt es im Mandanten nicht"', /gibt es im Mandanten nicht/.test(r.out.error), r.out);
+  pruefe('404 -> nicht erreichbar: nicht freigegeben oder Adresse falsch (Microsoft antwortet ohne Freigabe ebenfalls mit 404)', /nicht erreichbar/.test(r.out.error) && /nicht freigegeben/.test(r.out.error) && /Adresse/.test(r.out.error), r.out);
   r = await run(MAIL, { action: 'search_messages', mailbox: 'geheim@salzburgerland.com' }, { graph: () => { const e = new Error('Request failed with status code 403'); throw e; } });
   pruefe('403 nur in der Fehlermeldung (kein Statusfeld) -> trotzdem "nicht freigegeben"', /nicht freigegeben/.test(r.out.error), r.out);
   r = await run(MAIL, { action: 'search_messages', mailbox: 'geheim@salzburgerland.com' }, { graph: () => { const e = new Error('x'); e.response = { body: { error: { code: 'ErrorAccessDenied', message: 'Access is denied' } } }; throw e; } });
