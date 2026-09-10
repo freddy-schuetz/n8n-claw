@@ -168,7 +168,7 @@ function tippenStart(serviceUrl, conversationId) {
   tick();
   const timer = setInterval(tick, 4000);
   wartend.set(conversationId, { timer, bis: Date.now() + 5 * 60 * 1000 });
-  setTimeout(() => { const w = wartend.get(conversationId); if (w && w.timer === timer) tippenStop(conversationId); }, 5 * 60 * 1000);
+  setTimeout(() => { const w = wartend.get(conversationId); if (w && w.timer === timer) tippenStop(conversationId); }, 11 * 60 * 1000);
 }
 
 // --- Dienstadresse je Mandant merken (fuer den Boten).

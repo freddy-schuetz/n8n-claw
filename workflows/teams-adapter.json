@@ -95,7 +95,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ message: $json.message, user_id: $json.user_id, session_id: $json.session_id, source: 'teams', metadata: { display_name: $json.display_name } }) }}",
         "options": {
-          "timeout": 300000
+          "timeout": 630000
         }
       },
       "onError": "continueRegularOutput"
