@@ -504,6 +504,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Zustellung vorbereiten",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -716,7 +723,7 @@
       "main": [
         [
           {
-            "node": "Build System Prompt",
+            "node": "Load Preferences",
             "type": "main",
             "index": 0
           }
@@ -742,6 +749,28 @@
         [
           {
             "node": "Merge Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zustellung vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Zustellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Preferences": {
+      "main": [
+        [
+          {
+            "node": "Build System Prompt",
             "type": "main",
             "index": 0
           }
@@ -1098,7 +1127,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = $input.first().json;\nconst message = raw.message || '';\nconst chatId = String(raw.chat_id || '');\n// Strip 'telegram:' prefix if present to get raw numeric ID\nconst userId = String(raw.user_id || '').replace('telegram:', '');\nconst source = raw.source || 'scheduled_task';\nconst sessionId = 'telegram:' + chatId;\nconst qualifiedUserId = 'telegram:' + userId;\n\nreturn [{ json: { userMessage: message, chatId, userId, sessionId, qualifiedUserId, source } }];"
+        "jsCode": "const raw = $input.first().json;\nconst message = raw.message || '';\nconst rawUser = String(raw.user_id || '');\nconst rawChat = String(raw.chat_id || '');\nconst source = raw.source || 'scheduled_task';\n// Telegram: chat_id ist die Chat-Nummer, user_id 'telegram:<nummer>' oder nackt.\n// Web und Teams (seit Runde 6, 10.09.2026): user_id ist die qualifizierte Kennung\n// (web:florian), chat_id traegt die Sitzung (web:florian oder teams:a:...), damit\n// Verlauf und Antwortweg dieselben sind wie im Gespraech. Vorher wurde aus\n// web:florian ein 'telegram:web:florian', und die Antwort ging an Telegram.\nconst telegram = !rawUser.includes(':') || rawUser.startsWith('telegram:');\nconst userId = telegram ? rawUser.replace('telegram:', '') : rawUser;\nconst qualifiedUserId = telegram ? 'telegram:' + userId : rawUser;\nconst chatId = telegram ? rawChat : null;\nconst sessionId = telegram ? 'telegram:' + rawChat : (rawChat.includes(':') ? rawChat : rawUser);\n\nreturn [{ json: { userMessage: message, chatId, userId, sessionId, qualifiedUserId, source, _scheduled: true } }];"
       },
       "id": "format-task-input",
       "name": "Format Task Input",
@@ -1253,7 +1282,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build system prompt from loaded context\nconst soul = $('Load Soul').all().map(i => i.json);\n// Deduplicate: sequential node chaining causes cartesian product (6 soul × 6 agents = 36 items)\nconst agentsRaw = $('Load Agents Config').all().map(i => i.json);\nconst agents = [...new Map(agentsRaw.map(a => [a.key, a])).values()];\nconst user = $('Load User Profile').first()?.json || {};\n// Deduplicate conversation history (36x duplicated due to upstream cartesian product):\n// per id, wenn die Zeile eine hat, sonst wie bisher role:content. Leere Zeilen\n// (alwaysOutputData ohne Treffer) fallen weg.\nconst historyRaw = $('Load Conversation History').all().map(i => i.json);\nconst seenHist = new Set();\nconst history = historyRaw.filter(h => {\n  if (!h || (h.content === undefined && h.role === undefined)) return false;\n  const k = (h.id !== undefined && h.id !== null) ? 'id:' + h.id : h.role + ':' + h.content;\n  if (seenHist.has(k)) return false;\n  seenHist.add(k);\n  return true;\n});\nconst mergeData = $('Merge Input').first().json;\nconst userMessage = mergeData.userMessage || '';\nconst chatId = mergeData.chatId;\nconst userId = mergeData.userId;\nconst inputSource = mergeData.source || 'telegram';\n\n// Build dynamic MCP server list from mcp_registry\nconst mcpRaw = $('Load MCP Servers').all().map(i => i.json);\nconst seenMcp = new Set();\nconst mcpServers = mcpRaw.filter(s => { if (!s.server_name || seenMcp.has(s.server_name)) return false; seenMcp.add(s.server_name); return true; });\nlet mcpServerList = '';\nif (mcpServers.length > 0) {\n  mcpServerList = '\\n\\n## Available MCP Skills:\\n' + mcpServers.map(s => {\n    const tools = Array.isArray(s.tools) ? s.tools.join(', ') : s.tools;\n    return `- ${s.server_name}: ${s.mcp_url} (tools: ${tools})${s.description ? ' — ' + s.description : ''}`;\n  }).join('\\n');\n}\n\n// Inject dynamic server list into mcp_instructions (replace any static server section)\nconst agentText = agents.map(a => {\n  if (a.key === 'mcp_instructions') {\n    const cleaned = a.content.replace(/\\n## (?:Available MCP (?:Servers|Skills)|Currently installed MCP Skills)[\\s\\S]*?(?=\\n## |$)/, '');\n    return `## ${a.key}\\n${cleaned}${mcpServerList}`;\n  }\n  return `## ${a.key}\\n${a.content}`;\n}).join('\\n\\n');\n\n// Build soul text\nconst soulText = soul.map(s => `## ${s.key}\\n${s.content}`).join('\\n\\n');\nconst userText = user.display_name\n  ? `Name: ${user.display_name} (${user.name})\\nTimezone: ${user.timezone}\\nKontext: ${user.context}\\nPrefs: ${JSON.stringify(user.preferences)}\\nSetup done: ${user.setup_done !== false ? 'true' : 'false'}`\n  : 'Unbekannter User';\n\n// Build conversation history: aelteste zuerst, Zeit relativ (bis 6 Stunden),\n// Kanaltag nur bei Beitraegen aus einem anderen Kanal als dem aktuellen,\n// Sprechername in Kanal-Sitzungen (mehrere Personen im selben Teams-Kanal).\n// $now bleibt allein fuer die Uhrzeit oben; die Verlaufslogik laeuft ueber\n// \"jetzt\", damit sie in Tests ueberschreibbar ist (globalThis.__jetzt).\nconst jetzt = (typeof globalThis !== 'undefined' && globalThis.__jetzt) ? new Date(globalThis.__jetzt) : new Date();\nconst tz = user.timezone || 'Europe/Vienna';\nconst sessionIdStr = String(mergeData.sessionId || '');\nconst historyScope = mergeData.historyScope || 'session';\nconst kanalSitzung = historyScope === 'session' && /^teams:19/.test(sessionIdStr);\nconst kanalVon = sid => /^teams:/.test(sid) ? 'Teams' : (/^web:/.test(sid) ? 'Web' : (/^telegram:/.test(sid) ? 'Telegram' : ''));\nconst kanalAktuell = kanalVon(sessionIdStr);\n// user_profiles.timezone ist Freitext. Intl wirft bei allem, was kein IANA-Name\n// ist (\"MEZ\", \"UTC+1\"); frueher lieferte $now.setZone dafuer nur ein ungueltiges\n// Datum. Deshalb einmal probieren und sonst auf Wien zurueckfallen.\nlet tzSicher = tz;\ntry { new Intl.DateTimeFormat('de-AT', { timeZone: tzSicher }).format(new Date()); } catch (_e) { tzSicher = 'Europe/Vienna'; }\nconst fmtTag = new Intl.DateTimeFormat('de-AT', { timeZone: tzSicher, day: '2-digit', month: '2-digit', year: 'numeric' });\nconst fmtUhr = new Intl.DateTimeFormat('de-AT', { timeZone: tzSicher, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });\nconst fmtWoTag = new Intl.DateTimeFormat('de-AT', { timeZone: tzSicher, weekday: 'short' });\nconst tagVon = d => fmtTag.format(d);\nconst heuteTag = tagVon(jetzt);\nconst gesternTag = tagVon(new Date(jetzt.getTime() - 86400000));\nfunction zeitText(d) {\n  const min = Math.round((jetzt.getTime() - d.getTime()) / 60000);\n  if (min < 1) return 'gerade eben';\n  if (min < 60) return 'vor ' + min + (min === 1 ? ' Minute' : ' Minuten');\n  const std = Math.floor(min / 60);\n  if (std <= 6) return 'vor ' + std + (std === 1 ? ' Stunde' : ' Stunden');\n  const tag = tagVon(d);\n  const uhr = fmtUhr.format(d);\n  if (tag === heuteTag) return 'heute ' + uhr;\n  if (tag === gesternTag) return 'gestern ' + uhr;\n  return fmtWoTag.format(d).replace('.', '') + ' ' + tag.slice(0, 6) + ' ' + uhr;\n}\nconst historySorted = (history.length && history.every(h => h.created_at))\n  ? history.slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at))\n  : history.slice().reverse();\nconst historyText = historySorted.map(h => {\n  const d = h.created_at ? new Date(h.created_at) : null;\n  const marken = [];\n  if (d && !isNaN(d.getTime())) marken.push(zeitText(d));\n  const kv = kanalVon(String(h.session_id || ''));\n  if (kv && kanalAktuell && kv !== kanalAktuell) marken.push('per ' + kv);\n  const md = (h.metadata && typeof h.metadata === 'object') ? h.metadata : {};\n  const sprecher = (kanalSitzung && h.role === 'user' && md.display_name) ? 'user (' + md.display_name + ')' : h.role;\n  return (marken.length ? '[' + marken.join(', ') + '] ' : '') + sprecher + ': ' + h.content;\n}).join('\\n');\nconst historyKopf = historyScope === 'person'\n  ? '# RECENT CONVERSATION (Web und persoenlicher Teams-Chat dieser Person zusammen, aelteste zuerst)'\n  : (kanalSitzung ? '# RECENT CONVERSATION (diese Kanal-Sitzung, mehrere Personen lesen mit)' : '# RECENT CONVERSATION (diese Sitzung, aelteste zuerst)');\n// Eine ueber den Boten zugestellte Nachricht steht als assistant-Zeile im Verlauf,\n// ist aber kein eigener Gruss an diese Person.\nconst eigenerBeitrag = h => {\n  if (h.role !== 'assistant') return false;\n  let md = h.metadata; if (typeof md === 'string') { try { md = JSON.parse(md); } catch (_e) { md = null; } }\n  return !(md && md.teams_bote);\n};\nconst heuteBegruesst = historySorted.some(h => eigenerBeitrag(h) && h.created_at && tagVon(new Date(h.created_at)) === heuteTag);\nconst grussHinweis = heuteBegruesst ? 'Heute schon begruesst: ohne Gruss direkt zur Sache.' : 'Erster Kontakt heute: einmal kurz begruessen.';\n\n// Current date/time in user's timezone\nconst now = $now.setZone(user.timezone || 'UTC').toFormat('cccc, dd LLLL yyyy, HH:mm');\n\nconst scheduledHint = inputSource === 'scheduled_task' ? '\\n\\n# SCHEDULED TASK\\nThis message is a scheduled task that the user set up earlier. Execute the instructions thoroughly and send the result. Start your response with a brief ⏰ note that this is a scheduled task result.' : '';\n\n// Build active projects list (names only — content loaded on demand via Project Manager tool)\nconst projectsRaw = $('Load Active Projects').all().map(i => i.json);\nconst seenProj = new Set();\nconst activeProjects = projectsRaw.filter(p => { if (!p.name || seenProj.has(p.name)) return false; seenProj.add(p.name); return true; });\nlet projectsSection = '';\nif (activeProjects.length > 0) {\n  projectsSection = '\\n\\n# ACTIVE PROJECTS\\n' + activeProjects.map(p => {\n    const d = p.updated_at ? new Date(p.updated_at).toISOString().split('T')[0] : '';\n    return `- ${p.name} (updated: ${d})`;\n  }).join('\\n') + '\\nUse the Project Manager tool to read or update project details.';\n}\n\n// Insights — derived from nightly memory consolidation pattern extraction (n8n-claw v1.4 Hermes-Memory)\n// Top-3 by importance, non-outdated. Empty section omitted entirely if no insights yet.\nconst insightsRaw = $('Load Insights').all().map(i => i.json);\nconst seenIns = new Set();\nconst insights = insightsRaw.filter(i => { if (!i || !i.content || seenIns.has(i.id)) return false; seenIns.add(i.id); return true; });\nlet insightsSection = '';\nif (insights.length > 0) {\n  insightsSection = '\\n\\n# WHAT YOU KNOW ABOUT THE USER (INSIGHTS)\\nThese behavioral patterns were extracted from past conversations during nightly consolidation. Use them as context to shape your responses, but do NOT explicitly cite them (\"I noticed you tend to...\"). Let them inform your tone, pacing, and suggestions silently.\\n' + insights.map(i => `- ${i.content}`).join('\\n');\n}\n\nconst systemPrompt = `# CURRENT TIME\\n${now}\\n\\n# SOUL\\n${soulText}\\n\\n# AGENT CONFIG\\n${agentText}\\n\\n# USER PROFILE\\n${userText}${insightsSection}${scheduledHint}${projectsSection}\\n\\n${historyKopf}\\n${grussHinweis}\\n${historyText}`;\n\nreturn [{\n  json: {\n    systemPrompt,\n    userMessage,\n    chatId: String(chatId),\n    userId: String(userId),\n    sessionId: mergeData.sessionId || `telegram:${chatId}`,\n    qualifiedUserId: mergeData.qualifiedUserId || `telegram:${userId}`,\n    source: inputSource,\n    _webhookSource: mergeData._webhookSource || false,\n    metadata: mergeData.metadata || {}\n  }\n}];"
+        "jsCode": "// Build system prompt from loaded context\nconst soul = $('Load Soul').all().map(i => i.json);\n// Deduplicate: sequential node chaining causes cartesian product (6 soul × 6 agents = 36 items)\nconst agentsRaw = $('Load Agents Config').all().map(i => i.json);\nconst agents = [...new Map(agentsRaw.map(a => [a.key, a])).values()];\nconst user = $('Load User Profile').first()?.json || {};\n// Deduplicate conversation history (36x duplicated due to upstream cartesian product):\n// per id, wenn die Zeile eine hat, sonst wie bisher role:content. Leere Zeilen\n// (alwaysOutputData ohne Treffer) fallen weg.\nconst historyRaw = $('Load Conversation History').all().map(i => i.json);\nconst seenHist = new Set();\nconst history = historyRaw.filter(h => {\n  if (!h || (h.content === undefined && h.role === undefined)) return false;\n  const k = (h.id !== undefined && h.id !== null) ? 'id:' + h.id : h.role + ':' + h.content;\n  if (seenHist.has(k)) return false;\n  seenHist.add(k);\n  return true;\n});\nconst mergeData = $('Merge Input').first().json;\nconst userMessage = mergeData.userMessage || '';\nconst chatId = mergeData.chatId;\nconst userId = mergeData.userId;\nconst inputSource = mergeData.source || 'telegram';\n\n// Build dynamic MCP server list from mcp_registry\nconst mcpRaw = $('Load MCP Servers').all().map(i => i.json);\nconst seenMcp = new Set();\nconst mcpServers = mcpRaw.filter(s => { if (!s.server_name || seenMcp.has(s.server_name)) return false; seenMcp.add(s.server_name); return true; });\nlet mcpServerList = '';\nif (mcpServers.length > 0) {\n  mcpServerList = '\\n\\n## Available MCP Skills:\\n' + mcpServers.map(s => {\n    const tools = Array.isArray(s.tools) ? s.tools.join(', ') : s.tools;\n    return `- ${s.server_name}: ${s.mcp_url} (tools: ${tools})${s.description ? ' — ' + s.description : ''}`;\n  }).join('\\n');\n}\n\n// Inject dynamic server list into mcp_instructions (replace any static server section)\nconst agentText = agents.map(a => {\n  if (a.key === 'mcp_instructions') {\n    const cleaned = a.content.replace(/\\n## (?:Available MCP (?:Servers|Skills)|Currently installed MCP Skills)[\\s\\S]*?(?=\\n## |$)/, '');\n    return `## ${a.key}\\n${cleaned}${mcpServerList}`;\n  }\n  return `## ${a.key}\\n${a.content}`;\n}).join('\\n\\n');\n\n// Build soul text\nconst soulText = soul.map(s => `## ${s.key}\\n${s.content}`).join('\\n\\n');\nconst userText = user.display_name\n  ? `Name: ${user.display_name} (${user.name})\\nTimezone: ${user.timezone}\\nKontext: ${user.context}\\nPrefs: ${JSON.stringify(user.preferences)}\\nSetup done: ${user.setup_done !== false ? 'true' : 'false'}`\n  : 'Unbekannter User';\n\n// Build conversation history: aelteste zuerst, Zeit relativ (bis 6 Stunden),\n// Kanaltag nur bei Beitraegen aus einem anderen Kanal als dem aktuellen,\n// Sprechername in Kanal-Sitzungen (mehrere Personen im selben Teams-Kanal).\n// $now bleibt allein fuer die Uhrzeit oben; die Verlaufslogik laeuft ueber\n// \"jetzt\", damit sie in Tests ueberschreibbar ist (globalThis.__jetzt).\nconst jetzt = (typeof globalThis !== 'undefined' && globalThis.__jetzt) ? new Date(globalThis.__jetzt) : new Date();\nconst tz = user.timezone || 'Europe/Vienna';\nconst sessionIdStr = String(mergeData.sessionId || '');\nconst historyScope = mergeData.historyScope || 'session';\nconst kanalSitzung = historyScope === 'session' && /^teams:19/.test(sessionIdStr);\nconst kanalVon = sid => /^teams:/.test(sid) ? 'Teams' : (/^web:/.test(sid) ? 'Web' : (/^telegram:/.test(sid) ? 'Telegram' : ''));\nconst kanalAktuell = kanalVon(sessionIdStr);\n// user_profiles.timezone ist Freitext. Intl wirft bei allem, was kein IANA-Name\n// ist (\"MEZ\", \"UTC+1\"); frueher lieferte $now.setZone dafuer nur ein ungueltiges\n// Datum. Deshalb einmal probieren und sonst auf Wien zurueckfallen.\nlet tzSicher = tz;\ntry { new Intl.DateTimeFormat('de-AT', { timeZone: tzSicher }).format(new Date()); } catch (_e) { tzSicher = 'Europe/Vienna'; }\nconst fmtTag = new Intl.DateTimeFormat('de-AT', { timeZone: tzSicher, day: '2-digit', month: '2-digit', year: 'numeric' });\nconst fmtUhr = new Intl.DateTimeFormat('de-AT', { timeZone: tzSicher, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });\nconst fmtWoTag = new Intl.DateTimeFormat('de-AT', { timeZone: tzSicher, weekday: 'short' });\nconst tagVon = d => fmtTag.format(d);\nconst heuteTag = tagVon(jetzt);\nconst gesternTag = tagVon(new Date(jetzt.getTime() - 86400000));\nfunction zeitText(d) {\n  const min = Math.round((jetzt.getTime() - d.getTime()) / 60000);\n  if (min < 1) return 'gerade eben';\n  if (min < 60) return 'vor ' + min + (min === 1 ? ' Minute' : ' Minuten');\n  const std = Math.floor(min / 60);\n  if (std <= 6) return 'vor ' + std + (std === 1 ? ' Stunde' : ' Stunden');\n  const tag = tagVon(d);\n  const uhr = fmtUhr.format(d);\n  if (tag === heuteTag) return 'heute ' + uhr;\n  if (tag === gesternTag) return 'gestern ' + uhr;\n  return fmtWoTag.format(d).replace('.', '') + ' ' + tag.slice(0, 6) + ' ' + uhr;\n}\nconst historySorted = (history.length && history.every(h => h.created_at))\n  ? history.slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at))\n  : history.slice().reverse();\nconst historyText = historySorted.map(h => {\n  const d = h.created_at ? new Date(h.created_at) : null;\n  const marken = [];\n  if (d && !isNaN(d.getTime())) marken.push(zeitText(d));\n  const kv = kanalVon(String(h.session_id || ''));\n  if (kv && kanalAktuell && kv !== kanalAktuell) marken.push('per ' + kv);\n  const md = (h.metadata && typeof h.metadata === 'object') ? h.metadata : {};\n  const sprecher = (kanalSitzung && h.role === 'user' && md.display_name) ? 'user (' + md.display_name + ')' : h.role;\n  return (marken.length ? '[' + marken.join(', ') + '] ' : '') + sprecher + ': ' + h.content;\n}).join('\\n');\nconst historyKopf = historyScope === 'person'\n  ? '# RECENT CONVERSATION (Web und persoenlicher Teams-Chat dieser Person zusammen, aelteste zuerst)'\n  : (kanalSitzung ? '# RECENT CONVERSATION (diese Kanal-Sitzung, mehrere Personen lesen mit)' : '# RECENT CONVERSATION (diese Sitzung, aelteste zuerst)');\n// Eine ueber den Boten zugestellte Nachricht steht als assistant-Zeile im Verlauf,\n// ist aber kein eigener Gruss an diese Person.\nconst eigenerBeitrag = h => {\n  if (h.role !== 'assistant') return false;\n  let md = h.metadata; if (typeof md === 'string') { try { md = JSON.parse(md); } catch (_e) { md = null; } }\n  return !(md && md.teams_bote);\n};\nconst heuteBegruesst = historySorted.some(h => eigenerBeitrag(h) && h.created_at && tagVon(new Date(h.created_at)) === heuteTag);\nconst grussHinweis = heuteBegruesst ? 'Heute schon begruesst: ohne Gruss direkt zur Sache.' : 'Erster Kontakt heute: einmal kurz begruessen.';\n\n// Current date/time in user's timezone\nconst now = $now.setZone(user.timezone || 'UTC').toFormat('cccc, dd LLLL yyyy, HH:mm');\n\nconst scheduledHint = inputSource === 'scheduled_task' ? '\\n\\n# SCHEDULED TASK\\nThis message is a scheduled task that the user set up earlier. Execute the instructions thoroughly and send the result. Start your response with a brief ⏰ note that this is a scheduled task result.' : '';\n\n// Build active projects list (names only — content loaded on demand via Project Manager tool)\nconst projectsRaw = $('Load Active Projects').all().map(i => i.json);\nconst seenProj = new Set();\nconst activeProjects = projectsRaw.filter(p => { if (!p.name || seenProj.has(p.name)) return false; seenProj.add(p.name); return true; });\nlet projectsSection = '';\nif (activeProjects.length > 0) {\n  projectsSection = '\\n\\n# ACTIVE PROJECTS\\n' + activeProjects.map(p => {\n    const d = p.updated_at ? new Date(p.updated_at).toISOString().split('T')[0] : '';\n    return `- ${p.name} (updated: ${d})`;\n  }).join('\\n') + '\\nUse the Project Manager tool to read or update project details.';\n}\n\n// Insights — derived from nightly memory consolidation pattern extraction (n8n-claw v1.4 Hermes-Memory)\n// Top-3 by importance, non-outdated. Empty section omitted entirely if no insights yet.\nconst insightsRaw = $('Load Insights').all().map(i => i.json);\nconst seenIns = new Set();\nconst insights = insightsRaw.filter(i => { if (!i || !i.content || seenIns.has(i.id)) return false; seenIns.add(i.id); return true; });\nlet insightsSection = '';\nif (insights.length > 0) {\n  insightsSection = '\\n\\n# WHAT YOU KNOW ABOUT THE USER (INSIGHTS)\\nThese behavioral patterns were extracted from past conversations during nightly consolidation. Use them as context to shape your responses, but do NOT explicitly cite them (\"I noticed you tend to...\"). Let them inform your tone, pacing, and suggestions silently.\\n' + insights.map(i => `- ${i.content}`).join('\\n');\n}\n\n// Vorlieben der sprechenden Person (10.09.2026): Anrede und feste Wuensche stehen\n// bei jeder Anfrage im Prompt, statt von der Gedaechtnissuche abzuhaengen. Die\n// lief in 74 Antworten an Barbara vier Mal, ihre Anrede kam ein einziges Mal an.\nlet prefsRaw = [];\ntry { prefsRaw = $('Load Preferences').all().map(i => i.json).filter(p => p && p.content); } catch (_e) {}\nconst seenPref = new Set();\nconst prefs = prefsRaw.filter(p => { const k = String(p.content).trim().toLowerCase(); if (seenPref.has(k)) return false; seenPref.add(k); return true; });\nlet prefsSection = '';\nif (prefs.length > 0) {\n  prefsSection = '\\n\\n# VORLIEBEN DIESER PERSON (verbindlich)\\nDiese Wuensche hat die Person selbst festgelegt. Anrede- und Namenswuensche gelten in jeder Antwort, ohne dass du sie erwaehnst oder nachfragst.\\n' + prefs.map(p => `- ${p.content}`).join('\\n');\n}\n\nconst systemPrompt = `# CURRENT TIME\\n${now}\\n\\n# SOUL\\n${soulText}\\n\\n# AGENT CONFIG\\n${agentText}\\n\\n# USER PROFILE\\n${userText}${prefsSection}${insightsSection}${scheduledHint}${projectsSection}\\n\\n${historyKopf}\\n${grussHinweis}\\n${historyText}`;\n\nreturn [{\n  json: {\n    systemPrompt,\n    userMessage,\n    chatId: String(chatId),\n    userId: String(userId),\n    sessionId: mergeData.sessionId || `telegram:${chatId}`,\n    qualifiedUserId: mergeData.qualifiedUserId || `telegram:${userId}`,\n    source: inputSource,\n    _webhookSource: mergeData._webhookSource || false,\n    metadata: mergeData.metadata || {}\n  }\n}];"
       },
       "id": "build-prompt",
       "name": "Build System Prompt",
@@ -1507,7 +1536,7 @@
     },
     {
       "parameters": {
-        "description": "Set a timed reminder, scheduled task, or recurring action. Modes:\\n- Reminder (type='reminder'): sends a Telegram message at the given time. Use for 'remind me at/in...'.\\n- Task (type='task'): the agent executes the instructions once at the given time and sends the result. Use for 'do X at Y o'clock'.\\n- Recurring (type='recurring'): creates a repeating scheduled action. Extra fields: name (label), instruction (what to do), schedule (object), action_type ('agent_task' or 'briefing', default 'agent_task'), notify_mode ('always' or 'on_change', default 'always'), timezone (default 'Europe/Berlin'). Schedule formats: {\"type\":\"interval\",\"minutes\":30} or {\"type\":\"daily\",\"time\":\"08:00\"} or {\"type\":\"weekly\",\"days\":[1,5],\"time\":\"09:00\"} (1=Mon..7=Sun). notify_mode: 'always' = always send result (use for briefings, reports). 'on_change' = only notify when something NEW is found (use for background monitoring like checking emails, news, prices, stock).\\n- Management (scheduled actions): action='list' (show all scheduled actions), action='enable'/'disable'/'delete' with target_id (ID of the action to manage).\\n- Management (one-time reminders): action='list_reminders' (show all pending reminders with their IDs), action='edit_reminder' with target_id + message and/or time (update a pending reminder), action='delete_reminder' with target_id (delete a reminder).\\nInput for reminder/task: time (ISO 8601), message (text), type. Input for recurring: see above. Input for management: action, target_id.",
+        "description": "Set a timed reminder, scheduled task, or recurring action. Modes:\\n- Reminder (type='reminder'): sends the message to the person at the given time on the channel they use with you (Teams chat, web chat or Telegram). Use for 'remind me at/in...'. The tool reply names the delivery channel: repeat it to the person, never promise a channel the reply does not name.\\n- Task (type='task'): the agent executes the instructions once at the given time and sends the result. Use for 'do X at Y o'clock'.\\n- Recurring (type='recurring'): creates a repeating scheduled action. Extra fields: name (label), instruction (what to do), schedule (object), action_type ('agent_task' or 'briefing', default 'agent_task'), notify_mode ('always' or 'on_change', default 'always'), timezone (default 'Europe/Berlin'). Schedule formats: {\"type\":\"interval\",\"minutes\":30} or {\"type\":\"daily\",\"time\":\"08:00\"} or {\"type\":\"weekly\",\"days\":[1,5],\"time\":\"09:00\"} (1=Mon..7=Sun). notify_mode: 'always' = always send result (use for briefings, reports). 'on_change' = only notify when something NEW is found (use for background monitoring like checking emails, news, prices, stock).\\n- Management (scheduled actions): action='list' (show all scheduled actions), action='enable'/'disable'/'delete' with target_id (ID of the action to manage).\\n- Management (one-time reminders): action='list_reminders' (show all pending reminders with their IDs), action='edit_reminder' with target_id + message and/or time (update a pending reminder), action='delete_reminder' with target_id (delete a reminder).\\nInput for reminder/task: time (ISO 8601 with timezone offset), message (text), type. Input for recurring: see above (schedule as JSON string). Input for management: action, target_id. Reminders and tasks belong to the person you are talking to; the identity is filled in automatically.",
         "workflowId": {
           "__rl": true,
           "value": "REPLACE_REMINDER_FACTORY_ID",
@@ -1515,11 +1544,125 @@
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
-          "value": {},
+          "value": {
+            "time": "={{ $fromAI('time', \"ISO 8601 time with offset for reminder or task, e.g. 2026-09-30T09:00:00+02:00. Empty for recurring and management.\", 'string') }}",
+            "message": "={{ $fromAI('message', \"Reminder text or task instruction.\", 'string') }}",
+            "type": "={{ $fromAI('type', \"reminder, task or recurring. Empty for management actions.\", 'string') }}",
+            "action": "={{ $fromAI('action', \"Management only: list_reminders, edit_reminder, delete_reminder, list, enable, disable, delete. Empty otherwise.\", 'string') }}",
+            "target_id": "={{ $fromAI('target_id', \"Management only: id of the reminder or scheduled action.\", 'string') }}",
+            "name": "={{ $fromAI('name', \"Recurring only: short label.\", 'string') }}",
+            "instruction": "={{ $fromAI('instruction', \"Recurring only: what to do on each run.\", 'string') }}",
+            "schedule": "={{ $fromAI('schedule', \"Recurring only: schedule object as JSON string, e.g. {\\\"type\\\":\\\"daily\\\",\\\"time\\\":\\\"08:00\\\"}.\", 'string') }}",
+            "action_type": "={{ $fromAI('action_type', \"Recurring only: agent_task or briefing.\", 'string') }}",
+            "notify_mode": "={{ $fromAI('notify_mode', \"Recurring only: always or on_change.\", 'string') }}",
+            "timezone": "={{ $fromAI('timezone', \"Recurring only: IANA timezone, default Europe/Berlin.\", 'string') }}",
+            "userId": "={{ $('Merge Input').first().json.qualifiedUserId || '' }}",
+            "chatId": "={{ $('Merge Input').first().json.chatId || $('Merge Input').first().json.sessionId || '' }}",
+            "sessionId": "={{ $('Merge Input').first().json.sessionId || '' }}"
+          },
           "matchingColumns": [],
-          "schema": [],
+          "schema": [
+            {
+              "id": "time",
+              "displayName": "time",
+              "type": "string",
+              "required": false,
+              "description": "ISO 8601 time with offset for reminder or task, e.g. 2026-09-30T09:00:00+02:00. Empty for recurring and management."
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "type": "string",
+              "required": false,
+              "description": "Reminder text or task instruction."
+            },
+            {
+              "id": "type",
+              "displayName": "type",
+              "type": "string",
+              "required": false,
+              "description": "reminder, task or recurring. Empty for management actions."
+            },
+            {
+              "id": "action",
+              "displayName": "action",
+              "type": "string",
+              "required": false,
+              "description": "Management only: list_reminders, edit_reminder, delete_reminder, list, enable, disable, delete. Empty otherwise."
+            },
+            {
+              "id": "target_id",
+              "displayName": "target_id",
+              "type": "string",
+              "required": false,
+              "description": "Management only: id of the reminder or scheduled action."
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "type": "string",
+              "required": false,
+              "description": "Recurring only: short label."
+            },
+            {
+              "id": "instruction",
+              "displayName": "instruction",
+              "type": "string",
+              "required": false,
+              "description": "Recurring only: what to do on each run."
+            },
+            {
+              "id": "schedule",
+              "displayName": "schedule",
+              "type": "string",
+              "required": false,
+              "description": "Recurring only: schedule object as JSON string, e.g. {\"type\":\"daily\",\"time\":\"08:00\"}."
+            },
+            {
+              "id": "action_type",
+              "displayName": "action_type",
+              "type": "string",
+              "required": false,
+              "description": "Recurring only: agent_task or briefing."
+            },
+            {
+              "id": "notify_mode",
+              "displayName": "notify_mode",
+              "type": "string",
+              "required": false,
+              "description": "Recurring only: always or on_change."
+            },
+            {
+              "id": "timezone",
+              "displayName": "timezone",
+              "type": "string",
+              "required": false,
+              "description": "Recurring only: IANA timezone, default Europe/Berlin."
+            },
+            {
+              "id": "userId",
+              "displayName": "userId",
+              "type": "string",
+              "required": false,
+              "description": "Set by the agent, do not fill."
+            },
+            {
+              "id": "chatId",
+              "displayName": "chatId",
+              "type": "string",
+              "required": false,
+              "description": "Set by the agent, do not fill."
+            },
+            {
+              "id": "sessionId",
+              "displayName": "sessionId",
+              "type": "string",
+              "required": false,
+              "description": "Set by the agent, do not fill."
+            }
+          ],
           "attemptToConvertTypes": false,
-          "convertFieldsToString": false
+          "convertFieldsToString": true
         }
       },
       "id": "tool-reminder-wf",
@@ -1601,8 +1744,8 @@
     },
     {
       "parameters": {
-        "description": "Manage tasks. Input: JSON with action and parameters.\n\nActions:\n- list: List tasks. Optional: status (pending/in_progress/done/cancelled), priority, due_before (ISO date)\n- create: Create task. Required: title. Optional: description, priority (low/medium/high/urgent), due_date (ISO 8601), parent_id (for subtasks), tags (array)\n- update: Update task. Required: id. Optional: title, description, status, priority, due_date, tags\n- delete: Delete task. Required: id\n- summary: Overview of all pending/in_progress tasks grouped by priority\n- set_preference: Save user preference. Required: key, value. Example: {\"action\":\"set_preference\",\"key\":\"morning_briefing\",\"value\":{\"enabled\":true,\"time\":\"08:00\"}}\n\nExamples:\n{\"action\":\"create\",\"title\":\"Call dentist\",\"due_date\":\"2026-03-10T10:00:00+01:00\",\"priority\":\"high\"}\n{\"action\":\"list\",\"status\":\"pending\"}\n{\"action\":\"update\",\"id\":5,\"status\":\"done\"}\n{\"action\":\"summary\"}",
-        "jsCode": "const SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst CHAT_ID = '{{TELEGRAM_CHAT_ID}}';\n\nasync function pgrest(method, path, body, extraHeaders = {}) {\n  const opts = {\n    method,\n    url: `${SUPABASE_URL}${path}`,\n    headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json', ...extraHeaders },\n    returnFullResponse: true,\n    ignoreHttpStatusErrors: true\n  };\n  if (body) opts.body = JSON.stringify(body);\n  const res = await helpers.httpRequest(opts);\n  if (!res.body || res.body === '') return null;\n  return typeof res.body === 'string' ? JSON.parse(res.body) : res.body;\n}\n\nlet input;\ntry { input = JSON.parse(query); } catch(e) { return 'Error: invalid JSON. Expected: {\"action\":\"list|create|update|delete|summary|set_preference\", ...}'; }\n\nconst userId = `telegram:${CHAT_ID}`;\nconst action = input.action;\n\nif (action === 'list') {\n  let filter = `user_id=eq.${encodeURIComponent(userId)}`;\n  if (input.status) filter += `&status=eq.${input.status}`;\n  if (input.priority) filter += `&priority=eq.${input.priority}`;\n  if (input.due_before) filter += `&due_date=lte.${input.due_before}`;\n  filter += '&parent_id=is.null&order=due_date.asc.nullslast,priority.desc,created_at.desc';\n  const tasks = await pgrest('GET', `/rest/v1/tasks?${filter}&select=*`);\n  return JSON.stringify(tasks);\n\n} else if (action === 'create') {\n  if (!input.title) return 'Error: title is required';\n  const body = {\n    user_id: userId,\n    title: input.title,\n    description: input.description || null,\n    priority: input.priority || 'medium',\n    due_date: input.due_date || null,\n    parent_id: input.parent_id || null,\n    tags: input.tags || []\n  };\n  const result = await pgrest('POST', '/rest/v1/tasks', body, { 'Prefer': 'return=representation' });\n  return JSON.stringify({ success: true, task: Array.isArray(result) ? result[0] : result });\n\n} else if (action === 'update') {\n  if (!input.id) return 'Error: id is required';\n  const body = {};\n  if (input.title) body.title = input.title;\n  if (input.description !== undefined) body.description = input.description;\n  if (input.status) {\n    body.status = input.status;\n    if (input.status === 'done') body.completed_at = new Date().toISOString();\n  }\n  if (input.priority) body.priority = input.priority;\n  if (input.due_date !== undefined) body.due_date = input.due_date;\n  if (input.tags) body.tags = input.tags;\n  body.updated_at = new Date().toISOString();\n  const result = await pgrest('PATCH', `/rest/v1/tasks?id=eq.${input.id}&user_id=eq.${encodeURIComponent(userId)}`, body, { 'Prefer': 'return=representation' });\n  return JSON.stringify({ success: true, task: Array.isArray(result) ? result[0] : result });\n\n} else if (action === 'delete') {\n  if (!input.id) return 'Error: id is required';\n  await pgrest('DELETE', `/rest/v1/tasks?id=eq.${input.id}&user_id=eq.${encodeURIComponent(userId)}`);\n  return JSON.stringify({ success: true, deleted: input.id });\n\n} else if (action === 'summary') {\n  const tasks = await pgrest('GET', `/rest/v1/tasks?user_id=eq.${encodeURIComponent(userId)}&status=in.(pending,in_progress)&parent_id=is.null&order=priority.desc,due_date.asc.nullslast&select=*`);\n  const profiles = await pgrest('GET', `/rest/v1/user_profiles?user_id=eq.${encodeURIComponent(userId)}&select=timezone`);\n  const tz = (profiles && profiles[0] && profiles[0].timezone) || 'Europe/Berlin';\n  const now = new Date();\n  const todayStr = now.toLocaleDateString('en-CA', { timeZone: tz });\n  const overdue = tasks.filter(t => { if (!t.due_date) return false; const d = new Date(t.due_date); return d < now && d.toLocaleDateString('en-CA', { timeZone: tz }) !== todayStr; });\n  const dueToday = tasks.filter(t => { if (!t.due_date) return false; return new Date(t.due_date).toLocaleDateString('en-CA', { timeZone: tz }) === todayStr; });\n  return JSON.stringify({\n    total_pending: tasks.length, overdue: overdue.length, due_today: dueToday.length,\n    by_priority: { urgent: tasks.filter(t => t.priority === 'urgent').length, high: tasks.filter(t => t.priority === 'high').length, medium: tasks.filter(t => t.priority === 'medium').length, low: tasks.filter(t => t.priority === 'low').length },\n    tasks: tasks.map(t => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, due_date: t.due_date }))\n  });\n\n} else if (action === 'set_preference') {\n  if (!input.key || input.value === undefined) return 'Error: key and value required';\n  const profiles = await pgrest('GET', `/rest/v1/user_profiles?user_id=eq.${encodeURIComponent(userId)}&select=preferences`);\n  const current = (profiles[0] && profiles[0].preferences) || {};\n  current[input.key] = input.value;\n  await pgrest('PATCH', `/rest/v1/user_profiles?user_id=eq.${encodeURIComponent(userId)}`, { preferences: current, updated_at: new Date().toISOString() }, { 'Prefer': 'return=minimal' });\n  if (input.key === 'morning_briefing' && input.value.enabled !== undefined) {\n    await pgrest('PATCH', `/rest/v1/heartbeat_config?check_name=eq.morning_briefing`, { enabled: input.value.enabled }, { 'Prefer': 'return=minimal' });\n  }\n  return JSON.stringify({ success: true, preference: input.key, value: input.value });\n\n} else {\n  return 'Error: unknown action \"' + action + '\". Use: list, create, update, delete, summary, set_preference';\n}"
+        "description": "Manage the personal task list of the person you are talking to (each person has their own list). A task is a list entry only: it sends NO notification. For a message at a given time use the Reminder tool.\nInput: JSON with action and parameters.\n\nActions:\n- list: List tasks. Optional: status (pending/in_progress/done/cancelled), priority, due_before (ISO date)\n- create: Create task. Required: title. Optional: description, priority (low/medium/high/urgent), due_date (ISO 8601), parent_id (for subtasks), tags (array)\n- update: Update task. Required: id. Optional: title, description, status, priority, due_date, tags\n- delete: Delete task. Required: id\n- summary: Overview of all pending/in_progress tasks grouped by priority\n- set_preference: Save user preference. Required: key, value. Example: {\"action\":\"set_preference\",\"key\":\"morning_briefing\",\"value\":{\"enabled\":true,\"time\":\"08:00\"}}\n\nExamples:\n{\"action\":\"create\",\"title\":\"Call dentist\",\"due_date\":\"2026-03-10T10:00:00+01:00\",\"priority\":\"high\"}\n{\"action\":\"list\",\"status\":\"pending\"}\n{\"action\":\"update\",\"id\":5,\"status\":\"done\"}\n{\"action\":\"summary\"}",
+        "jsCode": "const SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst CHAT_ID = '{{TELEGRAM_CHAT_ID}}';\n\nasync function pgrest(method, path, body, extraHeaders = {}) {\n  const opts = {\n    method,\n    url: `${SUPABASE_URL}${path}`,\n    headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json', ...extraHeaders },\n    returnFullResponse: true,\n    ignoreHttpStatusErrors: true\n  };\n  if (body) opts.body = JSON.stringify(body);\n  const res = await helpers.httpRequest(opts);\n  if (!res.body || res.body === '') return null;\n  return typeof res.body === 'string' ? JSON.parse(res.body) : res.body;\n}\n\nlet input;\ntry { input = JSON.parse(query); } catch(e) { return 'Error: invalid JSON. Expected: {\"action\":\"list|create|update|delete|summary|set_preference\", ...}'; }\n\n// Je Person (10.09.2026): bis dahin landete jede Aufgabe, egal wer sie anlegte,\n// unter der Telegram-Nummer des Betreibers, und alle sahen dieselbe Liste\n// (Florians Aufgabe vom 09.09. lag in der Liste des Betreibers). Ohne Kennung\n// (Telegram-Eingang alter Bauart) bleibt der bisherige Wert.\nlet userId = '';\ntry { userId = String($('Merge Input').first().json.qualifiedUserId || ''); } catch (_e) {}\nif (!userId) userId = `telegram:${CHAT_ID}`;\nconst action = input.action;\n\nif (action === 'list') {\n  let filter = `user_id=eq.${encodeURIComponent(userId)}`;\n  if (input.status) filter += `&status=eq.${input.status}`;\n  if (input.priority) filter += `&priority=eq.${input.priority}`;\n  if (input.due_before) filter += `&due_date=lte.${input.due_before}`;\n  filter += '&parent_id=is.null&order=due_date.asc.nullslast,priority.desc,created_at.desc';\n  const tasks = await pgrest('GET', `/rest/v1/tasks?${filter}&select=*`);\n  return JSON.stringify(tasks);\n\n} else if (action === 'create') {\n  if (!input.title) return 'Error: title is required';\n  const body = {\n    user_id: userId,\n    title: input.title,\n    description: input.description || null,\n    priority: input.priority || 'medium',\n    due_date: input.due_date || null,\n    parent_id: input.parent_id || null,\n    tags: input.tags || []\n  };\n  const result = await pgrest('POST', '/rest/v1/tasks', body, { 'Prefer': 'return=representation' });\n  return JSON.stringify({ success: true, task: Array.isArray(result) ? result[0] : result });\n\n} else if (action === 'update') {\n  if (!input.id) return 'Error: id is required';\n  const body = {};\n  if (input.title) body.title = input.title;\n  if (input.description !== undefined) body.description = input.description;\n  if (input.status) {\n    body.status = input.status;\n    if (input.status === 'done') body.completed_at = new Date().toISOString();\n  }\n  if (input.priority) body.priority = input.priority;\n  if (input.due_date !== undefined) body.due_date = input.due_date;\n  if (input.tags) body.tags = input.tags;\n  body.updated_at = new Date().toISOString();\n  const result = await pgrest('PATCH', `/rest/v1/tasks?id=eq.${input.id}&user_id=eq.${encodeURIComponent(userId)}`, body, { 'Prefer': 'return=representation' });\n  return JSON.stringify({ success: true, task: Array.isArray(result) ? result[0] : result });\n\n} else if (action === 'delete') {\n  if (!input.id) return 'Error: id is required';\n  await pgrest('DELETE', `/rest/v1/tasks?id=eq.${input.id}&user_id=eq.${encodeURIComponent(userId)}`);\n  return JSON.stringify({ success: true, deleted: input.id });\n\n} else if (action === 'summary') {\n  const tasks = await pgrest('GET', `/rest/v1/tasks?user_id=eq.${encodeURIComponent(userId)}&status=in.(pending,in_progress)&parent_id=is.null&order=priority.desc,due_date.asc.nullslast&select=*`);\n  const profiles = await pgrest('GET', `/rest/v1/user_profiles?user_id=eq.${encodeURIComponent(userId)}&select=timezone`);\n  const tz = (profiles && profiles[0] && profiles[0].timezone) || 'Europe/Berlin';\n  const now = new Date();\n  const todayStr = now.toLocaleDateString('en-CA', { timeZone: tz });\n  const overdue = tasks.filter(t => { if (!t.due_date) return false; const d = new Date(t.due_date); return d < now && d.toLocaleDateString('en-CA', { timeZone: tz }) !== todayStr; });\n  const dueToday = tasks.filter(t => { if (!t.due_date) return false; return new Date(t.due_date).toLocaleDateString('en-CA', { timeZone: tz }) === todayStr; });\n  return JSON.stringify({\n    total_pending: tasks.length, overdue: overdue.length, due_today: dueToday.length,\n    by_priority: { urgent: tasks.filter(t => t.priority === 'urgent').length, high: tasks.filter(t => t.priority === 'high').length, medium: tasks.filter(t => t.priority === 'medium').length, low: tasks.filter(t => t.priority === 'low').length },\n    tasks: tasks.map(t => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, due_date: t.due_date }))\n  });\n\n} else if (action === 'set_preference') {\n  if (!input.key || input.value === undefined) return 'Error: key and value required';\n  const profiles = await pgrest('GET', `/rest/v1/user_profiles?user_id=eq.${encodeURIComponent(userId)}&select=preferences`);\n  const current = (profiles[0] && profiles[0].preferences) || {};\n  current[input.key] = input.value;\n  await pgrest('PATCH', `/rest/v1/user_profiles?user_id=eq.${encodeURIComponent(userId)}`, { preferences: current, updated_at: new Date().toISOString() }, { 'Prefer': 'return=minimal' });\n  if (input.key === 'morning_briefing' && input.value.enabled !== undefined) {\n    await pgrest('PATCH', `/rest/v1/heartbeat_config?check_name=eq.morning_briefing`, { enabled: input.value.enabled }, { 'Prefer': 'return=minimal' });\n  }\n  return JSON.stringify({ success: true, preference: input.key, value: input.value });\n\n} else {\n  return 'Error: unknown action \"' + action + '\". Use: list, create, update, delete, summary, set_preference';\n}"
       },
       "id": "tool-task-manager",
       "name": "Task Manager",
@@ -1887,6 +2030,15 @@
                       "type": "boolean",
                       "operation": "false"
                     }
+                  },
+                  {
+                    "leftValue": "={{ String($('Merge Input').first().json.chatId || '') }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    }
                   }
                 ],
                 "combinator": "and"
@@ -2104,6 +2256,65 @@
         220,
         -520
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ergebnis eines geplanten Laufs (Erinnerung vom Typ task, wiederkehrende Aktion)\n// fuer eine Person ohne Telegram: Web oder Teams. Die Antwort steht schon im\n// Verlauf (Save Conversation and Log), deshalb im_verlauf = true; die Zustellung\n// bringt sie nur noch in den Teams-Chat oder laesst sie im Web-Verlauf stehen.\nconst bsp = $('Build System Prompt').first().json;\nconst ant = $('Abbruch-Antwort').first().json || {};\nconst text = typeof ant.output === 'string' ? ant.output : String(ant.output || '');\nif (!text.trim()) return [];\nreturn [{ json: { user_id: bsp.qualifiedUserId, chat_id: bsp.sessionId, session_id: bsp.sessionId, text, im_verlauf: true, art: 'geplant', kopf: '' } }];"
+      },
+      "id": "zustellung-vorbereiten",
+      "name": "Zustellung vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4352,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_ZUSTELLUNG_ID",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "zustellen-agent",
+      "name": "Zustellen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4576,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, content FROM memory_long WHERE category = 'preference' AND owner_user_id = '{{ $('Merge Input').first().json.qualifiedUserId }}' AND COALESCE(metadata->>'outdated', 'false') <> 'true' ORDER BY importance DESC, created_at DESC LIMIT 5",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "id": "load-preferences",
+      "name": "Load Preferences",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "executeOnce": true,
+      "position": [
+        2208,
+        160
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      },
+      "alwaysOutputData": true,
+      "continueOnFail": true
     }
   ]
 }

@@ -99,7 +99,7 @@
       "main": [
         [
           {
-            "node": "Send Telegram",
+            "node": "Zustellen",
             "type": "main",
             "index": 0
           },
@@ -318,30 +318,6 @@
     },
     {
       "parameters": {
-        "operation": "sendMessage",
-        "chatId": "={{ $json.chat_id }}",
-        "text": "={{ ($json.checkerMessage || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
-        "additionalFields": {
-          "parse_mode": "HTML"
-        }
-      },
-      "id": "send-telegram",
-      "name": "Send Telegram",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        1760,
-        -200
-      ],
-      "credentials": {
-        "telegramApi": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Telegram Bot"
-        }
-      }
-    },
-    {
-      "parameters": {
         "workflowId": {
           "__rl": true,
           "value": "REPLACE_AGENT_WORKFLOW_ID",
@@ -386,6 +362,26 @@
       "parameters": {
         "jsCode": "const SUPABASE_URL = '{{SUPABASE_URL}}';\nconst SUPABASE_KEY = '{{SUPABASE_SERVICE_KEY}}';\nconst BRIDGE_URL = 'http://file-bridge:3200';\n\n// 1. Cleanup expired files on File Bridge\nlet bridgeResult = { cleaned: 0 };\ntry {\n  bridgeResult = await helpers.httpRequest({\n    method: 'DELETE',\n    url: BRIDGE_URL + '/cleanup'\n  });\n} catch(e) {\n  // File Bridge may not be running yet\n}\n\n// 2. Cleanup expired metadata in DB\nlet dbResult = null;\ntry {\n  dbResult = await helpers.httpRequest({\n    method: 'DELETE',\n    url: SUPABASE_URL + '/rest/v1/file_refs?expires_at=lt.' + new Date().toISOString(),\n    headers: {\n      'apikey': SUPABASE_KEY,\n      'Authorization': 'Bearer ' + SUPABASE_KEY\n    }\n  });\n} catch(e) {}\n\nreturn [{ json: { bridge_cleaned: bridgeResult.cleaned || 0, db_cleanup: 'done' } }];"
       }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_ZUSTELLUNG_ID",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "zustellen-heartbeat",
+      "name": "Zustellen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1760,
+        -200
+      ]
     }
   ]
 }

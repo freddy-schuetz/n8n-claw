@@ -49,6 +49,13 @@
         ],
         [
           {
+            "node": "Zustellen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Execute Agent",
             "type": "main",
             "index": 0
@@ -68,6 +75,17 @@
       ]
     },
     "Execute Agent": {
+      "main": [
+        [
+          {
+            "node": "Mark Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zustellen": {
       "main": [
         [
           {
@@ -102,7 +120,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Fetch all pending reminders that are due\nconst now = new Date().toISOString();\nconst reminders = await helpers.httpRequest({\n  method: 'GET',\n  url: `{{SUPABASE_URL}}/rest/v1/reminders?reminded_at=is.null&remind_at=lte.${now}&order=remind_at.asc`,\n  headers: {\n    'apikey': '{{SUPABASE_SERVICE_KEY}}',\n    'Content-Type': 'application/json'\n  },\n  json: true\n});\n\nif (!reminders || reminders.length === 0) {\n  return [];\n}\n\n// Return each reminder as a separate item for looping\nreturn reminders.map(r => ({ json: r }));"
+        "jsCode": "// Fetch all pending reminders that are due\nconst now = new Date().toISOString();\nconst reminders = await helpers.httpRequest({\n  method: 'GET',\n  url: `{{SUPABASE_URL}}/rest/v1/reminders?reminded_at=is.null&remind_at=lte.${now}&order=remind_at.asc`,\n  headers: {\n    'apikey': '{{SUPABASE_SERVICE_KEY}}',\n    'Content-Type': 'application/json'\n  },\n  json: true\n});\n\nif (!reminders || reminders.length === 0) {\n  return [];\n}\n\n// Zustellweg je Zeile (10.09.2026): Telegram-Nummer -> Telegram-Knoten wie bisher,\n// alles andere (web:..., teams:a:...) -> Zustellung ueber die Teams-Bruecke bzw.\n// den Verlauf, Aufgaben (type task) -> Agent. Vorher gab es nur Telegram.\nreturn reminders.map(r => {\n  const telegram = /^\\d+$/.test(String(r.chat_id || ''));\n  const weg = r.type === 'task' ? 'agent' : (telegram ? 'telegram' : 'zustellung');\n  return { json: Object.assign({}, r, { zustellweg: weg, text: '\\u23F0 ' + (r.message || ''), session_id: telegram ? null : r.chat_id, art: 'erinnerung' }) };\n});"
       },
       "name": "Check Reminders",
       "type": "n8n-nodes-base.code",
@@ -157,18 +175,18 @@
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{ $json.type }}",
-                    "rightValue": "task",
+                    "leftValue": "={{ $json.zustellweg }}",
+                    "rightValue": "telegram",
                     "operator": {
                       "type": "string",
-                      "operation": "notEquals"
+                      "operation": "equals"
                     }
                   }
                 ],
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "reminder"
+              "outputKey": "telegram"
             },
             {
               "conditions": {
@@ -179,8 +197,8 @@
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{ $json.type }}",
-                    "rightValue": "task",
+                    "leftValue": "={{ $json.zustellweg }}",
+                    "rightValue": "zustellung",
                     "operator": {
                       "type": "string",
                       "operation": "equals"
@@ -190,7 +208,29 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "task"
+              "outputKey": "zustellung"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.zustellweg }}",
+                    "rightValue": "agent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "agent"
             }
           ]
         },
@@ -210,7 +250,7 @@
     {
       "parameters": {
         "chatId": "={{ $json.chat_id }}",
-        "text": "=\u23f0 {{ ($json.message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "text": "=⏰ {{ ($json.message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
         "additionalFields": {
           "appendAttribution": false,
           "parse_mode": "HTML"
@@ -221,7 +261,7 @@
       "typeVersion": 1.2,
       "position": [
         896,
-        -120
+        -200
       ],
       "id": "send-01",
       "credentials": {
@@ -256,13 +296,13 @@
       "typeVersion": 1.2,
       "position": [
         896,
-        120
+        200
       ],
       "id": "exec-agent-01"
     },
     {
       "parameters": {
-        "jsCode": "// Mark ALL processed reminders as sent — $('Has Reminders').item resolves\n// only the first item of a batch here, which left the rest unmarked and\n// re-sent every minute; itemMatching(i) follows each item's pairing instead.\nconst marked = [];\nfor (let i = 0; i < $input.all().length; i++) {\n  const id = $('Has Reminders').itemMatching(i).json.id;\n  await helpers.httpRequest({\n    method: 'PATCH',\n    url: `{{SUPABASE_URL}}/rest/v1/reminders?id=eq.${id}`,\n    headers: {\n      'apikey': '{{SUPABASE_SERVICE_KEY}}',\n      'Content-Type': 'application/json'\n    },\n    body: { reminded_at: new Date().toISOString() },\n    json: true\n  });\n  marked.push({ json: { id, marked: true } });\n}\nreturn marked;"
+        "jsCode": "// Alle faelligen Erinnerungen dieses Laufs als erledigt markieren. Frueher\n// itemMatching(i) je Zweig; seit Runde 6 gibt es drei Zweige (Telegram,\n// Zustellung, Agent) und die Zustellung liefert eigene Datensaetze. Zugestellt\n// oder im Verlauf abgelegt sind die Zeilen in jedem Fall, eine Wiederholung\n// jede Minute waere falsch. Schlaegt ein Zweig fehl, endet der Lauf vorher, und\n// die Zeilen bleiben offen (wie bisher).\nconst marked = [];\nconst gesehen = new Set();\nfor (const it of $('Has Reminders').all()) {\n  const id = it.json.id;\n  if (id === undefined || id === null || gesehen.has(id)) continue;\n  gesehen.add(id);\n  await helpers.httpRequest({\n    method: 'PATCH',\n    url: `{{SUPABASE_URL}}/rest/v1/reminders?id=eq.${id}`,\n    headers: {\n      'apikey': '{{SUPABASE_SERVICE_KEY}}',\n      'Content-Type': 'application/json'\n    },\n    body: { reminded_at: new Date().toISOString() },\n    json: true\n  });\n  marked.push({ json: { id, marked: true } });\n}\nreturn marked;"
       },
       "name": "Mark Done",
       "type": "n8n-nodes-base.code",
@@ -272,6 +312,26 @@
         0
       ],
       "id": "mark-01"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_ZUSTELLUNG_ID",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "zustellen-runner",
+      "name": "Zustellen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        0
+      ]
     }
   ]
 }
