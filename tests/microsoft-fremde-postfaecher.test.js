@@ -169,11 +169,37 @@ const NACHRICHT = { id: 'AAMk1', subject: 'Rechnung', from: { emailAddress: { na
   r3 = await run(MAIL, { action: 'create_draft', subject: 'x', body: 'Preis < 100 & mehr' }, { graph: mailStub(sink, []) });
   pruefe('Sonderzeichen werden maskiert', /Preis &lt; 100 &amp; mehr/.test(sink.entwurf.body.content), sink.entwurf.body.content);
 
+  console.log('--- Signatur: was NICHT hineingehoert (Review 18.09.2026) ---');
+  // "lg" ohne Wortgrenze traf mitten in Woertern und trug den halben Mailtext
+  // als Signatur in den neuen Entwurf.
+  sink = {};
+  const FALLE_LG = '<div>Vielen Dank für den Erfolg des Projekts, wir besprechen die Details am Montag im Jour fixe mit dem ganzen Team und klären dann auch das Budget.</div>';
+  r3 = await run(MAIL, { action: 'create_draft', subject: 'x', body: 'kurz' }, { graph: mailStub(sink, [FALLE_LG]) });
+  pruefe('"Erfolg" wird nicht als Grussformel gelesen', !/Projekts/.test(sink.entwurf.body.content), sink.entwurf.body.content.slice(0, 160));
+  sink = {};
+  const SIG_VERSCHACHTELT = '<div id="Signature"><div><span>Mit freundlichen Grüßen</span></div><div>Florian Schumacher</div></div>';
+  r3 = await run(MAIL, { action: 'create_draft', subject: 'x', body: 'kurz' }, { graph: mailStub(sink, [SIG_VERSCHACHTELT]) });
+  pruefe('verschachtelte Signatur wird vollstaendig uebernommen',
+    /Florian Schumacher/.test(sink.entwurf.body.content), sink.entwurf.body.content.slice(-180));
+  const offen = (sink.entwurf.body.content.match(/<div/g) || []).length - (sink.entwurf.body.content.match(/<\/div>/g) || []).length;
+  pruefe('keine offenen div im Entwurf', offen === 0, offen);
+  sink = {};
+  const SIG_MIT_BILD = '<div id="Signature"><div>Liebe Grüße<br><img src="cid:logo123@01D1" alt="Logo"><br>Lea</div></div></body></html>';
+  r3 = await run(MAIL, { action: 'create_draft', subject: 'x', body: 'kurz' }, { graph: mailStub(sink, [SIG_MIT_BILD]) });
+  pruefe('cid-Bild und Rumpfabschluss fliegen raus',
+    !/cid:/.test(sink.entwurf.body.content) && !/<\/body>/.test(sink.entwurf.body.content) && /Lea/.test(sink.entwurf.body.content),
+    sink.entwurf.body.content.slice(-180));
+  sink = {};
+  const LANG = '<div>Viele Grüße</div>' + '<div>Noch ein langer Absatz mit Inhalt, der nicht in eine Signatur gehört.</div>'.repeat(12);
+  r3 = await run(MAIL, { action: 'create_draft', subject: 'x', body: 'kurz' }, { graph: mailStub(sink, [LANG]) });
+  pruefe('zu langer Block gilt nicht als Signatur', !/langer Absatz/.test(sink.entwurf.body.content), sink.entwurf.body.content.slice(-140));
+
   console.log('--- Mail: reply_draft behaelt das Zitat ---');
   for (const [name, rumpf, muster] of [
     ['appendonsend', '<html><body><div id="appendonsend"></div><hr><div>Von: Sara</div><div>alter Text</div></body></html>', /alter Text/],
     ['divRplyFwdMsg', '<html><body><div id="divRplyFwdMsg">Von: Sara</div><div>alter Text</div></body></html>', /alter Text/],
     ['nur hr', '<html><body><hr><div>alter Text</div></body></html>', /alter Text/],
+    ['hr erst spaet im Zitat', '<html><body>' + '<div>zitierter Absatz</div>'.repeat(120) + '<hr><div>alter Text</div></body></html>', /alter Text/],
     ['leerer Rumpf', '', /Danke fuer die Zahlen/]
   ]) {
     sink = { antwortRumpf: rumpf };
@@ -195,14 +221,22 @@ const NACHRICHT = { id: 'AAMk1', subject: 'Rechnung', from: { emailAddress: { na
       throw new Error('unerwartet ' + o.method + ' ' + url);
     };
   }
+  // Zweistufig: ein Entwurf kann auch von der Person selbst stammen.
   sink = {};
   r3 = await run(MAIL, { action: 'delete_draft', message_id: 'dr1' }, { graph: loeschStub(sink, { id: 'dr1', subject: 'Angebot', isDraft: true }) });
-  pruefe('Entwurf wird geloescht', /geloescht/.test(r3.out.result) && /\/me\/messages\/dr1/.test(sink.geloescht || ''), [r3.out, sink]);
+  pruefe('ohne Bestaetigung nur Vorschau, nichts geloescht',
+    /Zum Loeschen vorgemerkt/.test(r3.out.result) && /Angebot/.test(r3.out.result) && !sink.geloescht, [r3.out, sink]);
   sink = {};
-  r3 = await run(MAIL, { action: 'delete_draft', message_id: 'AAMk1' }, { graph: loeschStub(sink, { id: 'AAMk1', subject: 'Rechnung', isDraft: false }) });
+  r3 = await run(MAIL, { action: 'delete_draft', message_id: 'dr1', confirm: 'true' }, { graph: loeschStub(sink, { id: 'dr1', subject: 'Angebot', isDraft: true }) });
+  pruefe('mit Bestaetigung wird geloescht', /geloescht/.test(r3.out.result) && /\/me\/messages\/dr1/.test(sink.geloescht || ''), [r3.out, sink]);
+  sink = {};
+  r3 = await run(MAIL, { action: 'delete_draft', message_id: 'dr1', confirm: 'ja' }, { graph: loeschStub(sink, { id: 'dr1', subject: 'Angebot', isDraft: true }) });
+  pruefe('"ja" gilt auch als Bestaetigung', /geloescht/.test(r3.out.result) && !!sink.geloescht, [r3.out, sink]);
+  sink = {};
+  r3 = await run(MAIL, { action: 'delete_draft', message_id: 'AAMk1', confirm: 'true' }, { graph: loeschStub(sink, { id: 'AAMk1', subject: 'Rechnung', isDraft: false }) });
   pruefe('echte Nachricht wird NICHT geloescht', /kein Entwurf/.test(r3.out.error) && !sink.geloescht, [r3.out, sink]);
   sink = {};
-  r3 = await run(MAIL, { action: 'delete_draft', message_id: 'x' }, { graph: loeschStub(sink, null) });
+  r3 = await run(MAIL, { action: 'delete_draft', message_id: 'x', confirm: 'true' }, { graph: loeschStub(sink, null) });
   pruefe('unbekannte id: klare Meldung, kein DELETE', /gibt es im Postfach nicht/.test(r3.out.error) && !sink.geloescht, [r3.out, sink]);
   r3 = await run(MAIL, { action: 'delete_draft', message_id: 'dr1', mailbox: 'info@salzburgerland.com' }, {});
   pruefe('fremdes Postfach: abgelehnt', /nur im eigenen Postfach/.test(r3.out.error), r3.out);

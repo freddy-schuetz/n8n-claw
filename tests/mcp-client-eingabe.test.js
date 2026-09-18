@@ -170,10 +170,36 @@ const CALL = (name, args) => ({ mcp_url: 'https://mcp.example/conf', tool_name: 
     pruefe('repariert: ' + name, !!r.sink.call && !/nicht lesbar/.test(r.out), [r.out.slice(0, 120), r.sink.call]);
   }
   r = await run(AGENT, OHNE_KLAMMER[0][1]);
-  pruefe('reparierter Aufruf steht als repariert im Protokoll', r.sink.audit[0] && r.sink.audit[0].repariert === 'klammer', r.sink.audit[0]);
+  // Der Vermerk steht in args, nicht in einer eigenen Spalte: die gibt es in
+  // tool_audit_log nicht, PostgREST haette den ganzen Eintrag verworfen und damit
+  // die Obergrenze von 60 Aufrufen ausgehebelt, die die Eintraege zaehlt.
+  pruefe('reparierter Aufruf steht als repariert im Protokoll', r.sink.audit[0] && r.sink.audit[0].args._repariert === 'klammer', r.sink.audit[0]);
+  pruefe('Protokolleintrag nutzt nur vorhandene Spalten',
+    r.sink.audit[0] && Object.keys(r.sink.audit[0]).every(k => ['session_id','user_id','source','origin','server_url','tool_name','is_write','write_source','args','args_truncated','status','result_summary','error','duration_ms','execution_id'].includes(k)),
+    r.sink.audit[0] && Object.keys(r.sink.audit[0]));
   pruefe('reparierter Aufruf traegt die richtigen Argumente', r.sink.call && r.sink.call.name === 'get_page' && r.sink.call.args.page_id === '1105199111', r.sink.call);
   r = await run(AGENT, JSON.stringify(CALL('get_page', { page_id: '3' })));
-  pruefe('vollstaendiger Aufruf wird nicht als repariert markiert', r.sink.audit[0] && !r.sink.audit[0].repariert, r.sink.audit[0]);
+  pruefe('vollstaendiger Aufruf wird nicht als repariert markiert', r.sink.audit[0] && !r.sink.audit[0].args._repariert, r.sink.audit[0]);
+
+  console.log('--- Reparatur fuellt keine Pflichtfelder mehr leer ---');
+  // Bricht die Eingabe genau an einer Feldgrenze ab, fehlt ein Pflichtfeld. Frueher
+  // wurde es mit '' gefuellt und der Aufruf lief; bei replace_in_page waere damit
+  // eine Fundstelle durch nichts ersetzt worden.
+  r = await run(AGENT, '{"mcp_url": "https://mcp.example/conf", "tool_name": "replace_in_page", "arguments": {"page_id": "1102839809", "find": "Alter Text"');
+  pruefe('repariert, aber Pflichtfeld fehlt: nichts ausgefuehrt',
+    !r.sink.call && /fehlende schliessende Klammern/.test(r.out) && /replace/.test(r.out), [r.out.slice(0, 180), r.sink.call]);
+  pruefe('die Abweisung steht im Protokoll', r.sink.audit.length === 1 && r.sink.audit[0].status === 'rejected', r.sink.audit);
+  r = await run(AGENT, '{"mcp_url": "https://mcp.example/conf", "tool_name": "replace_in_page", "arguments": {"page_id": "1", "find": "a", "replace": "b"');
+  pruefe('repariert und vollstaendig: laeuft', r.sink.call && r.sink.call.name === 'replace_in_page' && r.sink.call.args.replace === 'b', r.sink.call);
+  r = await run(AGENT, CALL('replace_in_page', { page_id: '1', find: 'a' }));
+  pruefe('ohne Reparatur wird weiter leer gefuellt (unveraendert)', r.sink.call && r.sink.call.args.replace === '', r.sink.call);
+
+  console.log('--- in_reply_to landet nie im Empfaengerfeld ---');
+  r = await run(AGENT, CALL('create_draft', { to: 'sara@x.at', body: 'Danke', in_reply_to: 'AAMkADA0NWQx' }));
+  pruefe('in_reply_to wird nicht auf to gelegt', !r.sink.call && !/AAMkADA0NWQx/.test(JSON.stringify(r.sink.call || {})), r.sink.call);
+  pruefe('stattdessen der Hinweis auf reply_draft', /reply_draft/.test(r.out), r.out.slice(0, 200));
+  r = await run(AGENT, CALL('create_draft', { to: 'sara@x.at', body: 'Danke' }));
+  pruefe('Regression: normaler Entwurf laeuft', r.sink.call && r.sink.call.args.to === 'sara@x.at', r.sink.call);
 
   console.log('--- Klammer-Reparatur greift NICHT bei echtem Muell ---');
   for (const [name, roh] of [
