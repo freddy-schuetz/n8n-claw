@@ -24,7 +24,17 @@ const TOOLS = [
   { name: 'update_page', inputSchema: { type: 'object', properties: { page_id: { type: 'string' }, body: { type: 'string' } }, required: ['page_id'] } },
   { name: 'list_comments_on_page', inputSchema: { type: 'object', properties: { page_id: { type: 'string' } }, required: ['page_id'] } },
   { name: 'transition_issue', inputSchema: { type: 'object', properties: { caller: { type: 'string' }, key: { type: 'string' }, transition: { type: 'string' } }, required: ['key', 'transition'] } },
-  { name: 'send_teams_message', inputSchema: { type: 'object', properties: { caller: { type: 'string' }, to: { type: 'string' }, text: { type: 'string' }, code: { type: 'string' } }, required: ['to', 'text'] } }
+  { name: 'send_teams_message', inputSchema: { type: 'object', properties: { caller: { type: 'string' }, to: { type: 'string' }, text: { type: 'string' }, code: { type: 'string' } }, required: ['to', 'text'] } },
+  // Ab 18.09.2026 fuer die neuen Hinweise: die Werkzeuge liegen live auf anderen
+  // Servern, fuer die Argumentpruefung zaehlt aber nur das Schema.
+  { name: 'create_draft', inputSchema: { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } }, required: ['body'] } },
+  { name: 'reply_draft', inputSchema: { type: 'object', properties: { message_id: { type: 'string' }, body: { type: 'string' } }, required: ['message_id', 'body'] } },
+  { name: 'search_issues', inputSchema: { type: 'object', properties: { jql: { type: 'string' }, limit: { type: 'string' } }, required: ['jql'] } },
+  { name: 'list_events', inputSchema: { type: 'object', properties: { start: { type: 'string' }, end: { type: 'string' } }, required: [] } },
+  { name: 'get_message', inputSchema: { type: 'object', properties: { message_id: { type: 'string' }, mailbox: { type: 'string' } }, required: ['message_id'] } },
+  { name: 'search_messages', inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'string' }, folder: { type: 'string' } }, required: [] } },
+  { name: 'replace_in_page', inputSchema: { type: 'object', properties: { page_id: { type: 'string' }, find: { type: 'string' }, replace: { type: 'string' } }, required: ['page_id', 'find', 'replace'] } },
+  { name: 'list_issue_types', inputSchema: { type: 'object', properties: { project_key: { type: 'string' } }, required: ['project_key'] } }
 ];
 
 function makeHelpers(sink, opts) {
@@ -142,9 +152,69 @@ const CALL = (name, args) => ({ mcp_url: 'https://mcp.example/conf', tool_name: 
   r = await run(AGENT, CALL('send_teams_message', { to: 'Hannah', text: 'hi', confirm: true }));
   pruefe('send_teams_message confirm: Hinweis auf code', /Hinweis: Die Bestaetigung laeuft ueber code/.test(r.out), r.out.slice(0, 200));
   r = await run(AGENT, CALL('get_page_by_title', { title: 'x', space: 'PRO28' }));
-  pruefe('get_page_by_title space: Hinweis', /Hinweis: get_page_by_title filtert ueber space_key/.test(r.out), r.out.slice(0, 200));
+  pruefe('get_page_by_title space -> space_key (18.09.: uebersetzen statt abweisen)',
+    r.sink.call && r.sink.call.args.space_key === 'PRO28' && !('space' in r.sink.call.args), r.sink.call);
   r = await run(AGENT, CALL('update_page', { page_id: '1', foo: 'x' }));
   pruefe('unbekanntes Argument ohne Hinweis: nur Schema wie bisher', /unknown args \[foo\]/.test(r.out) && !/Hinweis:/.test(r.out), r.out.slice(0, 120));
+
+  console.log('--- Klammer-Reparatur (die 21 Faelle vom 11. bis 17.09.) ---');
+  // Echte Rohaufrufe aus den Execution-Snapshots, jeweils ohne die letzte Klammer.
+  const OHNE_KLAMMER = [
+    ['deploy_meeting_bot', '{\"mcp_url\":\"https://mcp.example/conf\",\"tool_name\":\"get_page\",\"arguments\":{\"page_id\":\"1105199111\",\"format\":\"storage\"}'],
+    ['append_to_page', '{\"mcp_url\": \"https://mcp.example/conf\", \"tool_name\": \"search_pages\", \"arguments\": {\"query\": \"Rupert steigt aus dem Call aus, Prioritaet: Hoch\"}'],
+    ['replace_in_page mit Maskierung', '{\"mcp_url\": \"https://mcp.example/conf\", \"tool_name\": \"update_page\", \"arguments\": {\"page_id\": \"1102839809\", \"body\": \"Zeile A\\nZeile B mit \\\"Anfuehrung\\\" drin\"}'],
+    ['zwei fehlende Klammern', '{\"mcp_url\": \"https://mcp.example/conf\", \"tool_name\": \"search_pages\", \"arguments\": {\"query\": \"x\", \"limit\": {\"tief\": \"1\"']
+  ];
+  for (const [name, roh] of OHNE_KLAMMER) {
+    r = await run(AGENT, roh);
+    pruefe('repariert: ' + name, !!r.sink.call && !/nicht lesbar/.test(r.out), [r.out.slice(0, 120), r.sink.call]);
+  }
+  r = await run(AGENT, OHNE_KLAMMER[0][1]);
+  pruefe('reparierter Aufruf steht als repariert im Protokoll', r.sink.audit[0] && r.sink.audit[0].repariert === 'klammer', r.sink.audit[0]);
+  pruefe('reparierter Aufruf traegt die richtigen Argumente', r.sink.call && r.sink.call.name === 'get_page' && r.sink.call.args.page_id === '1105199111', r.sink.call);
+  r = await run(AGENT, JSON.stringify(CALL('get_page', { page_id: '3' })));
+  pruefe('vollstaendiger Aufruf wird nicht als repariert markiert', r.sink.audit[0] && !r.sink.audit[0].repariert, r.sink.audit[0]);
+
+  console.log('--- Klammer-Reparatur greift NICHT bei echtem Muell ---');
+  for (const [name, roh] of [
+    ['abgeschnittener Schluessel', '{\"mcp_url\": \"https://mcp.example/conf\", \"tool_na'],
+    ['offene Zeichenkette', '{\"mcp_url\": \"https://mcp.example/conf\", \"tool_name\": \"get_pa'],
+    ['falsch verschachtelt', '{\"a\": [1, 2}'],
+    ['gar kein JSON', 'bitte lies die Seite 123'],
+    ['nur ein Wort', 'get_page']
+  ]) {
+    r = await run(AGENT, roh);
+    pruefe('abgewiesen: ' + name, !r.sink.call && /nicht lesbar/.test(r.out) && r.threw === null, [r.out.slice(0, 100), r.sink.call]);
+  }
+  r = await run(AGENT, 'kein json {');
+  pruefe('Abweisung nennt jetzt Fehlerstelle und Ende der Eingabe', /Die Eingabe endet mit: \.\.\./.test(r.out), r.out.slice(0, 200));
+  r = await run(AGENT, '{\"a\": [1, 2}');
+  pruefe('Abweisung wird protokolliert', r.sink.audit.length === 1 && r.sink.audit[0].status === 'rejected', r.sink.audit);
+
+  console.log('--- Neue Synonyme (12 Abweisungen vom 11. bis 17.09.) ---');
+  r = await run(AGENT, CALL('search_pages', { query: 'x', top: 5 }));
+  pruefe('top -> limit', r.sink.call && r.sink.call.args.limit === '5' && !('top' in r.sink.call.args), r.sink.call);
+  r = await run(AGENT, CALL('replace_in_page', { page_id: '1', old_text: 'alt', new_text: 'neu' }));
+  pruefe('old_text/new_text -> find/replace', r.sink.call && r.sink.call.args.find === 'alt' && r.sink.call.args.replace === 'neu'
+    && !('old_text' in r.sink.call.args), r.sink.call);
+  r = await run(AGENT, CALL('list_issue_types', { projectKey: 'OM' }));
+  pruefe('projectKey -> project_key', r.sink.call && r.sink.call.args.project_key === 'OM', r.sink.call);
+  r = await run(AGENT, CALL('search_messages', { query: 'x', mail_folder: 'ToDo' }));
+  pruefe('mail_folder -> folder', r.sink.call && r.sink.call.args.folder === 'ToDo', r.sink.call);
+  r = await run(AGENT, CALL('update_page', { page_id: '1', old_text: 'a' }));
+  pruefe('old_text ohne passendes Ziel bleibt eine Abweisung (update_page kennt find nicht)',
+    !r.sink.call && /unknown args \[old_text\]/.test(r.out), r.out.slice(0, 120));
+
+  console.log('--- Neue Hinweise ---');
+  for (const [tool, args, muster] of [
+    ['create_draft', { to: 'a@b.c', reply_to_message_id: 'AAMk' }, /reply_draft/],
+    ['search_issues', { jql: 'project = OM', startAt: 50 }, /blaettert nicht/],
+    ['list_events', { date: '2026-09-18' }, /Zeitraum/],
+    ['get_message', { query: 'Rechnung' }, /search_messages/]
+  ]) {
+    r = await run(AGENT, CALL(tool, args));
+    pruefe('Hinweis fuer ' + tool, muster.test(r.out), r.out.slice(0, 220));
+  }
 
   console.log('--- Regression ---');
   r = await run(AGENT, CALL('transition_issue', { key: 'OM-1', transition: 'Done', caller: 'web:fremd' }));

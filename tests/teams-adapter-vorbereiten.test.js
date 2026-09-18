@@ -232,6 +232,60 @@ async function fall(name, fn) {
     assert.equal(nur(u.calls, 'GET', '/user_profiles?user_id=eq.').length, 0);
   });
 
+  // --- Akademische Titel und Sonderzeichen (18.09.2026, Fall Primoz Kompan) ---
+  const primoz = (extra = {}) => installation(Object.assign({ fromName: 'Kompan, Mag. Primož', givenName: 'Mag. Primož',
+    surname: 'Kompan', upn: 'p.kompan@salzburgerland.com' }, extra));
+
+  await fall('Installation "Kompan, Mag. Primoz" trifft das Web-Profil "Primoz Kompan"', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:primoz', display_name: 'Primoz Kompan' }, { user_id: 'web:freddy', display_name: 'Freddy Schuetz' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(primoz()));
+    assert.equal(r.json.user_id, 'web:primoz', 'Titel und Hatschek duerfen die Zuordnung nicht verhindern');
+    const map = nur(u.calls, 'POST', '/user_identity_map');
+    assert.equal(map.length, 1);
+    assert.equal(map[0].body.legacy_key, 'web:primoz');
+    assert.equal(nur(u.calls, 'POST', '/user_profiles').length, 0, 'kein zweites Entra-Profil');
+  });
+
+  await fall('Anzeigename und Gruss ohne Titel', async () => {
+    const u = umgebung();
+    const [r] = await vorbereiten.call(u.self, eingang(primoz()));
+    assert.equal(r.json.display_name, 'Primož Kompan');
+    assert.equal(nur(u.calls, 'POST', '/user_profiles')[0].body.display_name, 'Primož Kompan');
+    assert.match(nur(u.calls, 'POST', '/reply')[0].body.text, /^Servus Primož,/);
+  });
+
+  await fall('Teams mit Hatschek trifft Web-Profil mit Hatschek ebenfalls', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:primoz', display_name: 'Primož Kompan' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(primoz()));
+    assert.equal(r.json.user_id, 'web:primoz');
+  });
+
+  await fall('Mehrere Titel (DI Dr.) werden gestrichen', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:test', display_name: 'Anna Berger' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(installation({ fromName: 'Berger, DI Dr. Anna', givenName: 'DI Dr. Anna', surname: 'Berger' })));
+    assert.equal(r.json.user_id, 'web:test');
+    assert.equal(r.json.display_name, 'Anna Berger');
+  });
+
+  await fall('Name, der nur aus einem Titelwort plus Namen besteht, schrumpft nicht auf ein Wort', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:dimarco', display_name: 'Di Marco' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(installation({ fromName: 'Di Marco', givenName: 'Di', surname: 'Marco' })));
+    assert.equal(r.json.display_name, 'Di Marco', 'ungekuerzt, weil sonst nur ein Wort bliebe');
+  });
+
+  await fall('Regression: Name ohne Titel unveraendert', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:sophie', display_name: 'Sophie Strasser' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(installation()));
+    assert.equal(r.json.user_id, 'web:sophie');
+    assert.equal(r.json.display_name, 'Sophie Strasser');
+  });
+
+  await fall('Regression: Schnoell mit Umlaut trifft das Web-Profil mit ue', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:michael', display_name: 'Michael Schnoell' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(installation({ fromName: 'Schnöll, Michael', givenName: 'Michael', surname: 'Schnöll' })));
+    assert.equal(r.json.user_id, 'web:michael');
+  });
+
   // Knoten "Abbruch melden"
   const abbruchCode = wf.nodes.find(n => n.name === 'Abbruch melden').parameters.jsCode;
   const abbruch = new AsyncFunction('$input', abbruchCode);
