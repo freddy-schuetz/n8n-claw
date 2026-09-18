@@ -99,6 +99,153 @@ const NACHRICHT = { id: 'AAMk1', subject: 'Rechnung', from: { emailAddress: { na
   r = await run(CAL, { action: 'list_events' }, { graph: (url) => { if (url.includes('/me/calendarView?')) return { value: [EV] }; throw new Error('x ' + url); } });
   pruefe('Regression: list_events unveraendert', /1 Termine \(Zeitzone/.test(r.out.result), r.out);
 
+  console.log('--- Kalender: Adressen aus Klammern (Carmen 11.09.2026) ---');
+  // Carmens Termin ging mit "(m.rappitsch@salzburgerland.com)" an Graph, die
+  // Einladung kam nie an. Der angelegte Termin wird hier mitgelesen.
+  function kalenderStub(sink) {
+    return (url, o) => {
+      if (o.method === 'POST' && /\/me\/events$/.test(url)) { sink.body = JSON.parse(o.body); return { id: 'ev-neu' }; }
+      if (o.method === 'PATCH') { sink.body = JSON.parse(o.body); return { id: 'ev1' }; }
+      if (/\/me\/events\/ev1\?/.test(url)) return { id: 'ev1', subject: 'Alt', start: { dateTime: '2026-09-18T09:00:00.0000000', timeZone: 'W. Europe Standard Time' }, end: { dateTime: '2026-09-18T09:30:00.0000000', timeZone: 'W. Europe Standard Time' }, attendees: [], location: {} };
+      if (/\/me\/events\/ev-neu\?/.test(url)) return { id: 'ev-neu', subject: 'Termin', start: { dateTime: '2026-09-18T10:15:00.0000000' }, end: { dateTime: '2026-09-18T10:45:00.0000000' }, attendees: (sink.body && sink.body.attendees) || [], location: {} };
+      throw new Error('unerwartet ' + o.method + ' ' + url);
+    };
+  }
+  for (const [name, eingabe, erwartet] of [
+    ['runde Klammern', '(m.rappitsch@salzburgerland.com)', ['m.rappitsch@salzburgerland.com']],
+    ['eckige Klammern', '[m.rappitsch@salzburgerland.com]', ['m.rappitsch@salzburgerland.com']],
+    ['Name mit spitzen Klammern', 'Miriam Rappitsch <m.rappitsch@salzburgerland.com>', ['m.rappitsch@salzburgerland.com']],
+    ['Name davor ohne Klammern', 'Miriam Rappitsch m.rappitsch@salzburgerland.com', ['m.rappitsch@salzburgerland.com']],
+    ['zwei Personen gemischt', 'Miriam <m.rappitsch@salzburgerland.com>, (c.kurcz@salzburgerland.com)', ['m.rappitsch@salzburgerland.com', 'c.kurcz@salzburgerland.com']],
+    ['saubere Adresse bleibt', 'm.rappitsch@salzburgerland.com', ['m.rappitsch@salzburgerland.com']]
+  ]) {
+    const sink = {};
+    await run(CAL, { action: 'create_event', subject: 'Termin', start: '2026-09-18T10:15:00', end: '2026-09-18T10:45:00', attendees: eingabe, confirm: 'true' }, { graph: kalenderStub(sink) });
+    const adressen = ((sink.body || {}).attendees || []).map(a => a.emailAddress.address);
+    pruefe('create_event ' + name, JSON.stringify(adressen) === JSON.stringify(erwartet), { adressen, erwartet });
+  }
+  let r2 = await run(CAL, { action: 'create_event', subject: 'Termin', start: '2026-09-18T10:15:00', end: '2026-09-18T10:45:00', attendees: 'Miriam Rappitsch', confirm: 'true' }, {});
+  pruefe('Teilnehmer ohne Adresse bleibt ein Fehler (nicht raten)', /Keine E-Mail-Adresse/.test(r2.out.error), r2.out);
+  const sinkU = {};
+  await run(CAL, { action: 'update_event', event_id: 'ev1', attendees: '(c.kurcz@salzburgerland.com)', confirm: 'true' }, { graph: kalenderStub(sinkU) });
+  pruefe('update_event loest die Adresse ebenfalls heraus',
+    JSON.stringify(((sinkU.body || {}).attendees || []).map(a => a.emailAddress.address)) === JSON.stringify(['c.kurcz@salzburgerland.com']), sinkU.body);
+
+  console.log('--- Mail: Entwuerfe wie normale Outlook-Mails (Florian 14.09.2026) ---');
+  const SIG_OWA = '<div id="Signature"><div>Mit freundlichen Gruessen<br>Florian Schumacher<br>SalzburgerLand Tourismus</div></div>';
+  const SIG_DESKTOP = '<div>Liebe Gruesse<br>Florian<br>SalzburgerLand Tourismus GmbH<br>Tel. +43 662 6688</div>';
+  function mailStub(sink, gesendet) {
+    return (url, o) => {
+      if (/mailFolders\/sentitems\/messages/.test(url)) return { value: (gesendet || []).map(h => ({ body: { content: h } })) };
+      if (o.method === 'POST' && /\/me\/messages$/.test(url)) { sink.entwurf = JSON.parse(o.body); return { id: 'dr1', subject: sink.entwurf.subject }; }
+      if (o.method === 'POST' && /createReply/.test(url)) return { id: 'dr2', body: { content: sink.antwortRumpf } };
+      if (o.method === 'PATCH') { sink.patch = JSON.parse(o.body); return {}; }
+      throw new Error('unerwartet ' + o.method + ' ' + url);
+    };
+  }
+  let sink = {};
+  let r3 = await run(MAIL, { action: 'create_draft', subject: 'Angebot', body: 'Hallo Sara,\n\nanbei die Zahlen:\n- Punkt eins\n- Punkt zwei\n\nDanke!' }, { graph: mailStub(sink, [SIG_OWA]) });
+  pruefe('create_draft schickt HTML, nicht Text', sink.entwurf.body.contentType === 'html', sink.entwurf.body.contentType);
+  pruefe('Outlook-Schrift im Rumpf', /font-family:Calibri/.test(sink.entwurf.body.content), sink.entwurf.body.content.slice(0, 120));
+  pruefe('Absaetze als div, Aufzaehlung als ul', /<div>Hallo Sara,<\/div>/.test(sink.entwurf.body.content) && /<ul><li>Punkt eins<\/li><li>Punkt zwei<\/li><\/ul>/.test(sink.entwurf.body.content), sink.entwurf.body.content);
+  pruefe('Signatur aus id="Signature" uebernommen', /Florian Schumacher/.test(sink.entwurf.body.content), sink.entwurf.body.content.slice(-200));
+  pruefe('Antwort sagt, dass die Signatur dran ist', /Signatur aus den zuletzt gesendeten Mails ist angehaengt/.test(r3.out.result), r3.out.result);
+
+  sink = {};
+  r3 = await run(MAIL, { action: 'create_draft', subject: 'x', body: 'kurz' }, { graph: mailStub(sink, [SIG_DESKTOP]) });
+  pruefe('Signatur ueber die Grussformel gefunden (Outlook-Desktop)', /Tel\. \+43 662 6688/.test(sink.entwurf.body.content), sink.entwurf.body.content.slice(-200));
+
+  sink = {};
+  r3 = await run(MAIL, { action: 'create_draft', subject: 'x', body: 'kurz' }, { graph: mailStub(sink, ['<div>Nur Text ohne alles</div>']) });
+  pruefe('keine Signatur gefunden: ohne anlegen und das sagen',
+    !/Signatur aus den zuletzt/.test(r3.out.result) && /Signatur habe ich .* nicht gefunden/.test(r3.out.result), r3.out.result);
+
+  sink = {};
+  const MIT_ZITAT = '<div>Viele Gruesse</div><div id="divRplyFwdMsg">Von: Sara</div><blockquote>alter Text</blockquote>';
+  r3 = await run(MAIL, { action: 'create_draft', subject: 'x', body: 'kurz' }, { graph: mailStub(sink, [MIT_ZITAT]) });
+  pruefe('zitierter Verlauf wird nicht als Signatur missverstanden', !/alter Text/.test(sink.entwurf.body.content), sink.entwurf.body.content);
+
+  sink = {};
+  r3 = await run(MAIL, { action: 'create_draft', subject: 'x', body: 'Preis < 100 & mehr' }, { graph: mailStub(sink, []) });
+  pruefe('Sonderzeichen werden maskiert', /Preis &lt; 100 &amp; mehr/.test(sink.entwurf.body.content), sink.entwurf.body.content);
+
+  console.log('--- Mail: reply_draft behaelt das Zitat ---');
+  for (const [name, rumpf, muster] of [
+    ['appendonsend', '<html><body><div id="appendonsend"></div><hr><div>Von: Sara</div><div>alter Text</div></body></html>', /alter Text/],
+    ['divRplyFwdMsg', '<html><body><div id="divRplyFwdMsg">Von: Sara</div><div>alter Text</div></body></html>', /alter Text/],
+    ['nur hr', '<html><body><hr><div>alter Text</div></body></html>', /alter Text/],
+    ['leerer Rumpf', '', /Danke fuer die Zahlen/]
+  ]) {
+    sink = { antwortRumpf: rumpf };
+    await run(MAIL, { action: 'reply_draft', message_id: 'AAMk1', body: 'Danke fuer die Zahlen' }, { graph: mailStub(sink, []) });
+    pruefe('reply_draft ' + name + ': Zitat bleibt', muster.test(sink.patch.body.content), sink.patch.body.content.slice(0, 200));
+    pruefe('reply_draft ' + name + ': eigener Text steht vor dem Zitat',
+      sink.patch.body.content.indexOf('Danke fuer die Zahlen') < (sink.patch.body.content.indexOf('alter Text') < 0 ? Infinity : sink.patch.body.content.indexOf('alter Text')), sink.patch.body.content.slice(0, 200));
+  }
+  pruefe('reply_draft schickt HTML', sink.patch.body.contentType === 'html', sink.patch.body.contentType);
+
+  console.log('--- Mail: delete_draft (Lea 15.09.2026) ---');
+  function loeschStub(sink, nachricht) {
+    return (url, o) => {
+      if (o.method === 'GET' && /\/me\/messages\//.test(url)) {
+        if (!nachricht) { const e = new Error('Request failed with status code 404'); e.httpCode = '404'; e.response = { statusCode: 404 }; throw e; }
+        return nachricht;
+      }
+      if (o.method === 'DELETE') { sink.geloescht = url; return {}; }
+      throw new Error('unerwartet ' + o.method + ' ' + url);
+    };
+  }
+  sink = {};
+  r3 = await run(MAIL, { action: 'delete_draft', message_id: 'dr1' }, { graph: loeschStub(sink, { id: 'dr1', subject: 'Angebot', isDraft: true }) });
+  pruefe('Entwurf wird geloescht', /geloescht/.test(r3.out.result) && /\/me\/messages\/dr1/.test(sink.geloescht || ''), [r3.out, sink]);
+  sink = {};
+  r3 = await run(MAIL, { action: 'delete_draft', message_id: 'AAMk1' }, { graph: loeschStub(sink, { id: 'AAMk1', subject: 'Rechnung', isDraft: false }) });
+  pruefe('echte Nachricht wird NICHT geloescht', /kein Entwurf/.test(r3.out.error) && !sink.geloescht, [r3.out, sink]);
+  sink = {};
+  r3 = await run(MAIL, { action: 'delete_draft', message_id: 'x' }, { graph: loeschStub(sink, null) });
+  pruefe('unbekannte id: klare Meldung, kein DELETE', /gibt es im Postfach nicht/.test(r3.out.error) && !sink.geloescht, [r3.out, sink]);
+  r3 = await run(MAIL, { action: 'delete_draft', message_id: 'dr1', mailbox: 'info@salzburgerland.com' }, {});
+  pruefe('fremdes Postfach: abgelehnt', /nur im eigenen Postfach/.test(r3.out.error), r3.out);
+  r3 = await run(MAIL, { action: 'delete_draft' }, {});
+  pruefe('ohne message_id: klare Meldung', /message_id/.test(r3.out.error), r3.out);
+
+  console.log('--- Mail: search_messages mit Ordner (Lea 15.09.2026) ---');
+  function ordnerStub(sink) {
+    return (url, o) => {
+      if (/\/mailFolders\?/.test(url)) return { value: [{ id: 'f-in', displayName: 'Posteingang' }, { id: 'f-proj', displayName: 'Projekte' }] };
+      if (/\/mailFolders\/inbox\/childFolders/.test(url)) return { value: [{ id: 'f-todo', displayName: 'ToDo' }, { id: 'f-team', displayName: 'Team' }] };
+      if (/\/messages\?/.test(url)) { sink.url = url; return { value: [NACHRICHT] }; }
+      throw new Error('unerwartet ' + url);
+    };
+  }
+  sink = {};
+  r3 = await run(MAIL, { action: 'search_messages', folder: 'ToDo' }, { graph: ordnerStub(sink) });
+  pruefe('Unterordner des Posteingangs wird gefunden', /mailFolders\/f-todo\/messages/.test(sink.url || ''), sink.url);
+  pruefe('Antwort nennt den Ordner', /im Ordner ToDo/.test(r3.out.result), r3.out.result);
+  sink = {};
+  await run(MAIL, { action: 'search_messages', folder: 'Projekte' }, { graph: ordnerStub(sink) });
+  pruefe('Ordner der obersten Ebene wird gefunden', /mailFolders\/f-proj\/messages/.test(sink.url || ''), sink.url);
+  sink = {};
+  await run(MAIL, { action: 'search_messages', folder: 'Archiv' }, { graph: ordnerStub(sink) });
+  pruefe('Archiv ist ein Microsoft-Standardordner, keine Suche noetig', /mailFolders\/archive\/messages/.test(sink.url || ''), sink.url);
+  sink = {};
+  await run(MAIL, { action: 'search_messages', folder: 'Gesendet' }, { graph: ordnerStub(sink) });
+  pruefe('bekannter Name ohne Abfrage (sentitems)', /mailFolders\/sentitems\/messages/.test(sink.url || ''), sink.url);
+  sink = {};
+  r3 = await run(MAIL, { action: 'search_messages', folder: 'Gibtsnicht' }, { graph: ordnerStub(sink) });
+  pruefe('unbekannter Ordner: Meldung mit vorhandenen Namen, keine Suche',
+    /finde ich nicht/.test(r3.out.error) && /Posteingang/.test(r3.out.error) && !sink.url, [r3.out, sink]);
+  sink = {};
+  await run(MAIL, { action: 'search_messages', query: 'Rechnung' }, { graph: ordnerStub(sink) });
+  pruefe('Regression: ohne folder unveraendert', /\/me\/messages\?/.test(sink.url || ''), sink.url);
+
+  const mw2 = skill(MAIL).wf;
+  pruefe('Server: search_messages kennt folder',
+    mw2.server.nodes.find(x => x.name === 'search_messages').parameters.workflowInputs.schema.some(x => x.id === 'folder'), null);
+  const dd = mw2.server.nodes.find(x => x.name === 'delete_draft');
+  pruefe('Server: Werkzeug delete_draft haengt am Trigger',
+    dd && dd.parameters.workflowInputs.value.action === 'delete_draft' && mw2.server.connections.delete_draft, dd && dd.parameters.workflowInputs.value);
+
   console.log('\n' + (n - f) + ' von ' + n + ' Faellen bestanden');
   process.exit(f ? 1 : 0);
 })();
