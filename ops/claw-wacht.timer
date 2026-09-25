@@ -1,0 +1,15 @@
+[Unit]
+Description=Prueft den n8n-claw-Stapel alle zwei Minuten
+
+[Timer]
+# 150 Sekunden nach dem Hochlaufen: deckt genau den Fall vom 25.09.2026 ab, in
+# dem Docker beim Boot einen Container liegen laesst, laesst dem normalen
+# Hochlaufen aber genug Luft. Mit der Schwelle von zwei Laeufen greift der
+# Waechter fruehestens rund viereinhalb Minuten nach dem Start ein.
+OnBootSec=150
+OnUnitActiveSec=120
+AccuracySec=10
+Unit=claw-wacht.service
+
+[Install]
+WantedBy=timers.target

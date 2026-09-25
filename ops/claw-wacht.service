@@ -1,0 +1,21 @@
+[Unit]
+Description=Waechter fuer den n8n-claw-Stapel (SLT)
+Documentation=file:/root/n8n-claw/ops/README.md
+After=docker.service
+# Bewusst KEIN Wants=docker.service: sonst wuerde der Waechter den Docker-Dienst
+# alle zwei Minuten wieder anwerfen, auch wenn ein Mensch ihn absichtlich unten
+# hat. Laeuft Docker nicht, laeuft der Waechter gar nicht erst an.
+ConditionPathExists=/var/run/docker.sock
+
+[Service]
+Type=oneshot
+ExecStart=/root/n8n-claw/ops/claw-wacht.sh
+# Legt /var/lib/claw-wacht an und uebergibt es dem Dienst. Ohne beschreibbaren
+# Zustandsordner handelt der Waechter nicht, sondern meldet nur.
+StateDirectory=claw-wacht
+# Kuerzer als das Timer-Intervall von 120 s, damit sich zwei Laeufe nicht
+# ueberholen. Der Waechter braucht im schlimmsten Fall rund 40 s.
+TimeoutStartSec=90
+# Der Waechter darf den Rechner nie ausbremsen.
+Nice=5
+IOSchedulingClass=idle
