@@ -1,0 +1,6 @@
+
+# Der Waechter und seine systemd-Einheiten laufen auf Linux:
+# CRLF wuerde das Skript unbrauchbar machen.
+ops/*.sh text eol=lf
+ops/*.service text eol=lf
+ops/*.timer text eol=lf

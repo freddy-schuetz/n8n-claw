@@ -18,3 +18,6 @@ volumes/
 
 # Teams-App-Paket wird gebaut, nicht eingecheckt
 teams-bridge/app-package/rupert-teams-app.zip
+ops/.lauf.txt
+ops/.testlauf*.txt
+ops/PAUSE
