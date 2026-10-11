@@ -552,6 +552,18 @@ function httpFehler(status, meldung) {
     pruefe('rs256 ist byteweise die Signatur von node-crypto', meine.equals(node), { meine: meine.toString('hex').slice(0, 24), node: node.toString('hex').slice(0, 24) });
   })();
 
+  console.log('--- Googles Begruendung ueberlebt jede Fehlerform ---');
+  for (const [name, bauen] of [
+    ['e.response.body', (m) => { const e = new Error('x'); e.httpCode = '400'; e.response = { statusCode: 400, body: { error: 'invalid_grant', error_description: m } }; return e; }],
+    ['e.response.data', (m) => { const e = new Error('x'); e.response = { statusCode: 400, data: { error_description: m } }; return e; }],
+    ['e.cause.response.data', (m) => { const e = new Error('x'); e.cause = { response: { data: { error_description: m } } }; return e; }],
+    ['e.description als Text', (m) => { const e = new Error('x'); e.description = m; return e; }],
+    ['nur e.message', (m) => new Error(m)],
+  ]) {
+    const rr = await lauf({ action: 'ga4_quick' }, { tokenFehler: bauen('Invalid JWT Signature') });
+    pruefe('Begruendung kommt durch (' + name + ')', /Invalid JWT Signature/.test(rr.out.error || ''), rr.out);
+  }
+
   console.log('--- Selbsttest (das ist der Beweis auf dem Server) ---');
   r = await lauf({ action: 'selftest' }, { google: googleStub() });
   pruefe('Selbsttest: eigene Signatur, Token, Property', /eigene RS256-Rechnung ok/.test(r.out.result) && /Token: geholt/.test(r.out.result) && /404505826/.test(r.out.result), r.out.result);
