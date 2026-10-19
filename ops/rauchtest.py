@@ -204,8 +204,12 @@ def agent_pruefen():
     if d.get('fallback') or (d.get('metadata') or {}).get('fallback'):
         return 'KAPUTT', 'Agent lieferte den Ersatztext (Abbruch im Lauf)'
     time.sleep(3)
+    # Fehler- und Ergebnistexte tragen Zeilenumbrueche: zusammenziehen, sonst
+    # zerfallen die Zeilen beim Lesen.
     zeilen = psql("select regexp_replace(coalesce(server_url,''), '^.*/mcp/', ''), status, "
-                  "coalesce(args->>'callerid', args->>'caller', ''), coalesce(error, ''), left(coalesce(result_summary, ''), 40) "
+                  "coalesce(args->>'callerid', args->>'caller', ''), "
+                  "regexp_replace(coalesce(error, ''), '[[:space:]]+', ' ', 'g'), "
+                  "regexp_replace(left(coalesce(result_summary, ''), 40), '[[:space:]]+', ' ', 'g') "
                   "from tool_audit_log where session_id = 'web:rauchtest' and created_at >= '%s' order by id" % beginn)
     leer = [z for z in zeilen if 'ohne Eingabe' in z[3]]
     if leer:
