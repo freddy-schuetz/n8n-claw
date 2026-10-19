@@ -1,0 +1,16 @@
+[Unit]
+Description=Werkzeugwache fuer den SLT-Agenten (meldet MCP-Server, die nur noch Fehler liefern)
+Documentation=file:/root/n8n-claw/ops/README.md
+After=docker.service
+# Wie beim Container-Waechter kein Wants=docker.service: laeuft Docker nicht,
+# laeuft die Wache gar nicht erst an.
+ConditionPathExists=/var/run/docker.sock
+
+[Service]
+Type=oneshot
+ExecStart=/root/n8n-claw/ops/claw-werkzeugwacht.sh
+# Derselbe Zustandsordner wie claw-wacht, die Wache legt darin "werkzeuge" an.
+StateDirectory=claw-wacht
+TimeoutStartSec=120
+Nice=5
+IOSchedulingClass=idle

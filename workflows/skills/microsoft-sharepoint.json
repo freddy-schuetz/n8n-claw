@@ -186,7 +186,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "list_sites",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}"
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}"
             },
             "schema": [
               {
@@ -228,7 +228,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "list_files",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "site": "={{ $fromAI('site', 'Name des Bereichs, optional wenn es nur einen gibt', 'string') }}",
               "path": "={{ $fromAI('path', 'Ordnerpfad innerhalb der Dokumente, optional', 'string') }}"
             },
@@ -284,7 +284,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "search_files",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "query": "={{ $fromAI('query', 'Suchbegriff', 'string') }}",
               "site": "={{ $fromAI('site', 'Name des Bereichs, optional', 'string') }}"
             },
@@ -340,7 +340,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "read_file",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "file_id": "={{ $fromAI('file_id', 'id der Datei aus list_files oder search_files', 'string') }}",
               "site": "={{ $fromAI('site', 'Name des Bereichs, optional', 'string') }}"
             },

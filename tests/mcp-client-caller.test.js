@@ -42,7 +42,7 @@ function makeHelpers(schema, sink) {
   };
 }
 
-async function run({ file, node, schema, modelArgs, identity, profile }) {
+async function run({ file, node, schema, modelArgs, identity, profile, roh }) {
   const sink = [];
   sink.sent = undefined; sink.audit = undefined;
   const $ = (name) => ({
@@ -58,7 +58,7 @@ async function run({ file, node, schema, modelArgs, identity, profile }) {
   const fn = new AsyncFunction('query', 'helpers', '$', '$execution',
     loadCode(file, node) + '\n//# sourceURL=mcp-client.js');
   const out = await fn(
-    { mcp_url: 'https://mcp.example/test', tool_name: 'create_event', arguments: modelArgs },
+    roh !== undefined ? roh : { mcp_url: 'https://mcp.example/test', tool_name: 'create_event', arguments: modelArgs },
     makeHelpers(schema, sink), $, { id: 'exec-1' }
   );
   return { sent: sink.sent, audit: sink.audit, out: String(out) };
@@ -228,6 +228,90 @@ function pruefe(name, bedingung, detail) {
   const BG = { file: 'workflows/background-checker.json', node: 'MCP Client' };
   r = await run({ ...BG, schema: SCHEMA_MAIL, identity: ICH, modelArgs: { id: 'AAMk123' } });
   pruefe('Background Checker: id wird zu message_id, caller leer', r.sent && r.sent.message_id === 'AAMk123' && r.sent.caller === '', r.sent);
+
+  // Runde 9 (19.10.2026): n8n sperrt seit 2.35.4 den $fromAI-Schluessel "caller",
+  // die Skills fragen die Kennung als "callerid" ab. Der Client muss sie dort
+  // setzen, alte Namen vom Modell verwerfen, und die Alias-Regel darf "id"
+  // weiter eindeutig zuordnen (mit "caller_id" waere das gebrochen).
+  console.log('--- callerid (Runde 9) ---');
+  const S_ID = { type: 'object', properties: { subject: { type: 'string' }, callerid: { type: 'string' } }, required: ['subject', 'callerid'] };
+  r = await run({ ...AGENT, schema: S_ID, identity: ICH, modelArgs: { subject: 'Termin' } });
+  pruefe('callerid wird gesetzt, wenn das Modell ihn weglaesst', r.sent && r.sent.callerid === 'entra:95625b4e' && !('caller' in r.sent), r.sent);
+
+  r = await run({ ...AGENT, schema: S_ID, identity: ICH, modelArgs: { subject: 'Termin', callerid: 'entra:FREMDE-PERSON' } });
+  pruefe('callerid vom Modell wird ueberschrieben', r.sent && r.sent.callerid === 'entra:95625b4e', r.sent);
+
+  r = await run({ ...AGENT, schema: S_ID, identity: ICH, modelArgs: { subject: 'Termin', caller: 'entra:FREMDE-PERSON' } });
+  pruefe('alter Name caller vom Modell faellt weg, keine Abweisung', r.sent && r.sent.callerid === 'entra:95625b4e' && !('caller' in r.sent), r.sent || r.out.slice(0, 120));
+
+  r = await run({ ...AGENT, schema: S_ID, identity: ICH, modelArgs: { subject: 'Termin', caller_id: 'entra:FREMDE-PERSON' } });
+  pruefe('caller_id vom Modell faellt weg', r.sent && r.sent.callerid === 'entra:95625b4e' && !('caller_id' in r.sent), r.sent || r.out.slice(0, 120));
+
+  r = await run({ ...AGENT, schema: S_ID, identity: ICH, modelArgs: { subject: 'Termin', caller: 'entra:FREMDE-PERSON' } });
+  pruefe('Protokoll zeigt den gesendeten callerid', r.audit && r.audit.args && r.audit.args.callerid === 'entra:95625b4e' && !('caller' in r.audit.args), r.audit && r.audit.args);
+
+  const S_ID_MAIL = { type: 'object', properties: { callerid: { type: 'string' }, message_id: { type: 'string' } }, required: ['callerid', 'message_id'] };
+  r = await run({ ...AGENT, schema: S_ID_MAIL, identity: ICH, modelArgs: { id: 'AAMk123' } });
+  pruefe('mit callerid: id wird weiter zu message_id', r.sent && r.sent.message_id === 'AAMk123' && !('id' in r.sent) && r.sent.callerid === 'entra:95625b4e', r.sent || r.out.slice(0, 120));
+
+  const S_ID_EVENT = { type: 'object', properties: { callerid: { type: 'string' }, event_id: { type: 'string' } }, required: ['callerid'] };
+  r = await run({ ...AGENT, schema: S_ID_EVENT, identity: ICH, modelArgs: { id: 'EV-1' } });
+  pruefe('mit callerid: id wird zu event_id', r.sent && r.sent.event_id === 'EV-1', r.sent || r.out.slice(0, 120));
+
+  r = await run({ ...AGENT, schema: S_ID_MAIL, identity: ICH, modelArgs: { user: 'web:hannah', message_id: 'AAMk123' } });
+  pruefe('mit callerid: user faellt weg', r.sent && !('user' in r.sent) && r.sent.callerid === 'entra:95625b4e', r.sent);
+
+  const S_ID_TO = { type: 'object', properties: { callerid: { type: 'string' }, to: { type: 'string' }, subject: { type: 'string' } }, required: ['callerid', 'to'] };
+  r = await run({ ...AGENT, schema: S_ID_TO, identity: ICH, modelArgs: { to: 'a@b.at', from_display: 'Gretel', sender: 'x', from: 'y' } });
+  pruefe('mit callerid: Absenderfelder werden verworfen', r.sent && !('from_display' in r.sent) && !('sender' in r.sent) && !('from' in r.sent) && r.sent.callerid === 'entra:95625b4e', r.sent);
+
+  const S_ID_NAME = { type: 'object', properties: { callerid: { type: 'string' }, caller_name: { type: 'string' }, subject: { type: 'string' } }, required: ['callerid'] };
+  r = await run({ ...AGENT, schema: S_ID_NAME, identity: ICH, profile: PROFIL, modelArgs: { subject: 'Termin', caller_name: 'Falscher Name' } });
+  pruefe('mit callerid: caller_name aus dem Profil', r.sent && r.sent.caller_name === 'Gretel Muster' && r.sent.callerid === 'entra:95625b4e', r.sent);
+
+  const S_ID_JIRA = { type: 'object', properties: { callerid: { type: 'string' }, key: { type: 'string' }, assignee: { type: 'string' } }, required: [] };
+  r = await run({ ...AGENT, schema: S_ID_JIRA, identity: ICH, modelArgs: { key: 'OM-1', fields: { assignee: 'acc-1', caller: 'entra:FREMD' } } });
+  pruefe('mit callerid: Hochheben ueberspringt caller', r.sent && r.sent.assignee === 'acc-1' && r.sent.callerid === 'entra:95625b4e' && !('caller' in r.sent), r.sent || r.out.slice(0, 120));
+
+  r = await run({ ...AGENT, schema: SCHEMA_OHNE_CALLER, identity: ICH, modelArgs: { subject: 'Termin', callerid: 'entra:FREMDE-PERSON' } });
+  pruefe('ohne Kennungsfeld bleibt callerid eine Abweisung', r.sent === undefined && /unknown args \[callerid\]/.test(r.out), r.out.slice(0, 120));
+
+  r = await run({ ...SUB, schema: S_ID, identity: ICH, modelArgs: { subject: 'Termin', caller: 'entra:FREMDE-PERSON' } });
+  pruefe('Sub-Agent: callerid leer, caller faellt weg', r.sent && r.sent.callerid === '' && !('caller' in r.sent), r.sent || r.out.slice(0, 120));
+
+  r = await run({ ...BG, schema: S_ID_MAIL, identity: ICH, modelArgs: { id: 'AAMk123' } });
+  pruefe('Background Checker: mit callerid id zu message_id, callerid leer', r.sent && r.sent.message_id === 'AAMk123' && r.sent.callerid === '', r.sent || r.out.slice(0, 120));
+
+  // Nachtrag nach der Durchsicht (19.10.2026): genau die Faelle, an denen eine
+  // Regression der Umbenennung sonst unbemerkt durchginge.
+  console.log('--- callerid: Durchsicht ---');
+  for (const [WO, name] of [[SUB, 'Sub-Agent'], [BG, 'Background Checker']]) {
+    r = await run({ ...WO, schema: S_ID, identity: ICH, modelArgs: { subject: 'Termin', callerid: 'entra:FREMDE-PERSON' } });
+    pruefe(name + ': callerid vom Modell wird geleert', r.sent && r.sent.callerid === '', r.sent || r.out.slice(0, 120));
+    r = await run({ ...WO, schema: S_ID_JIRA, identity: ICH, modelArgs: { key: 'OM-1', fields: { assignee: 'acc-1', callerid: 'entra:FREMD' } } });
+    pruefe(name + ': callerid im verpackten Objekt wird nicht uebernommen', r.sent && r.sent.callerid === '' && r.sent.assignee === 'acc-1', r.sent || r.out.slice(0, 120));
+    r = await run({ ...WO, schema: SCHEMA_MIT_CALLER, identity: ICH, modelArgs: { subject: 'Termin', callerid: 'entra:FREMD' } });
+    pruefe(name + ': alter Server, callerid vom Modell faellt weg, caller leer', r.sent && r.sent.caller === '' && !('callerid' in r.sent), r.sent || r.out.slice(0, 120));
+  }
+  r = await run({ ...AGENT, schema: SCHEMA_MIT_CALLER, identity: ICH, modelArgs: { subject: 'Termin', callerid: 'entra:FREMD' } });
+  pruefe('Agent: alter Server, callerid vom Modell faellt weg, caller vom Aufrufer', r.sent && r.sent.caller === 'entra:95625b4e' && !('callerid' in r.sent), r.sent || r.out.slice(0, 120));
+
+  const S_BEIDE = { type: 'object', properties: { subject: { type: 'string' }, caller: { type: 'string' }, callerid: { type: 'string' } }, required: ['subject'] };
+  r = await run({ ...AGENT, schema: S_BEIDE, identity: ICH, modelArgs: { subject: 'Termin', caller: 'entra:FREMD', callerid: 'entra:FREMD' } });
+  pruefe('Agent: beide angebotenen Kennungsfelder vom Aufrufer gesetzt', r.sent && r.sent.caller === 'entra:95625b4e' && r.sent.callerid === 'entra:95625b4e', r.sent || r.out.slice(0, 120));
+  r = await run({ ...SUB, schema: S_BEIDE, identity: ICH, modelArgs: { subject: 'Termin', caller: 'entra:FREMD', callerid: 'entra:FREMD' } });
+  pruefe('Sub-Agent: beide angebotenen Kennungsfelder leer', r.sent && r.sent.caller === '' && r.sent.callerid === '', r.sent || r.out.slice(0, 120));
+
+  for (const [WO, name] of [[AGENT, 'Agent'], [SUB, 'Sub-Agent'], [BG, 'Background Checker']]) {
+    r = await run({ ...WO, schema: null, identity: ICH, modelArgs: { subject: 'Termin', callerid: 'entra:FREMD', caller: 'entra:FREMD', caller_id: 'x', user: 'web:hannah' } });
+    pruefe(name + ': ohne lesbares Schema gehen keine Kennungsnamen hinaus', r.sent && r.sent.subject === 'Termin'
+      && !('callerid' in r.sent) && !('caller' in r.sent) && !('caller_id' in r.sent) && !('user' in r.sent), r.sent || r.out.slice(0, 120));
+  }
+
+  // Klammer-Reparatur im Sub-Agenten: die absichtlich leere Kennung ist kein
+  // fehlendes Pflichtfeld, der reparierte Aufruf geht durch.
+  r = await run({ ...SUB, schema: S_ID_MAIL, identity: ICH, roh: '{"mcp_url":"https://mcp.example/test","tool_name":"create_event","arguments":{"message_id":"AAMk1"}' });
+  pruefe('Sub-Agent: reparierter Aufruf mit leerer Kennung geht durch', r.sent && r.sent.message_id === 'AAMk1' && r.sent.callerid === '', r.sent || r.out.slice(0, 160));
 
   console.log(fails === 0 ? '\nAlle Pruefungen bestanden.' : `\n${fails} Pruefung(en) fehlgeschlagen.`);
   process.exit(fails === 0 ? 0 : 1);

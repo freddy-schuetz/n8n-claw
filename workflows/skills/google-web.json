@@ -89,7 +89,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "ga4_report",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "metrics": "={{ $fromAI('metrics', 'Metriken, mit Komma getrennt, Vorgabe Sitzungen und Nutzer', 'string') }}",
               "dimensions": "={{ $fromAI('dimensions', 'Dimensionen, mit Komma getrennt, leer lassen fuer die Gesamtzahlen', 'string') }}",
               "period": "={{ $fromAI('period', 'Zeitraum, zum Beispiel letzte 7 Tage oder September 2026, Vorgabe letzte 28 Tage', 'string') }}",
@@ -180,7 +180,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "ga4_quick",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "preset": "={{ $fromAI('preset', 'Eine der Voreinstellungen: ueberblick, top_seiten, quellen, laender, geraete, kampagnen, verlauf', 'string') }}",
               "period": "={{ $fromAI('period', 'Zeitraum, zum Beispiel letzter Monat, Vorgabe letzte 28 Tage', 'string') }}",
               "limit": "={{ $fromAI('limit', 'Anzahl Zeilen, Vorgabe 10', 'string') }}",
@@ -250,7 +250,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "ga4_realtime",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "dimensions": "={{ $fromAI('dimensions', 'Aufschluesselung, Vorgabe Land, moeglich auch Geraet oder Seite', 'string') }}",
               "property_id": ""
             },
@@ -306,7 +306,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "ga4_fields",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "query": "={{ $fromAI('query', 'Suchbegriff, zum Beispiel Umsatz, leer lassen fuer die ersten dreissig', 'string') }}",
               "property_id": ""
             },
@@ -362,7 +362,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "gsc_search",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "dimensions": "={{ $fromAI('dimensions', 'Aufschluesselung, mit Komma getrennt: suchbegriff, seite, land, geraet, datum. Vorgabe suchbegriff', 'string') }}",
               "period": "={{ $fromAI('period', 'Zeitraum, Vorgabe letzte 28 Tage', 'string') }}",
               "filter": "={{ $fromAI('filter', 'Ein Filter, zum Beispiel seite enthaelt /winter oder land = aut', 'string') }}",
@@ -446,7 +446,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "gsc_inspect",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "url": "={{ $fromAI('url', 'Die vollstaendige Adresse der Seite, mit https://', 'string') }}",
               "site_url": ""
             },

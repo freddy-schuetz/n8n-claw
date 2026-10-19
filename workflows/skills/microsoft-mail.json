@@ -89,7 +89,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "search_messages",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "query": "={{ $fromAI('query', 'Suchbegriff, optional. Ohne Angabe die neuesten Nachrichten', 'string') }}",
               "limit": "={{ $fromAI('limit', 'Hoechstzahl, Vorgabe 10', 'string') }}",
               "unread_only": "={{ $fromAI('unread_only', 'true, wenn nur Ungelesenes', 'string') }}",
@@ -166,7 +166,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "get_message",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "message_id": "={{ $fromAI('message_id', 'id aus search_messages', 'string') }}",
               "mailbox": "={{ $fromAI('mailbox', 'Optional: E-Mail-Adresse eines freigegebenen oder angehaengten Postfachs (Vertretung, Sammelpostfach). Leer fuer das eigene Postfach', 'string') }}"
             },
@@ -222,7 +222,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "create_draft",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "subject": "={{ $fromAI('subject', 'Betreff', 'string') }}",
               "body": "={{ $fromAI('body', 'Text der Mail', 'string') }}",
               "to": "={{ $fromAI('to', 'Empfaenger, mit Komma getrennt, optional', 'string') }}",
@@ -292,7 +292,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "reply_draft",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "message_id": "={{ $fromAI('message_id', 'id der Nachricht, auf die geantwortet wird', 'string') }}",
               "body": "={{ $fromAI('body', 'Text der Antwort', 'string') }}",
               "mailbox": "={{ $fromAI('mailbox', 'Leer lassen: Entwuerfe gehen nur im eigenen Postfach', 'string') }}"
@@ -355,7 +355,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "delete_draft",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "message_id": "={{ $fromAI('message_id', \"Id of the draft to delete.\", 'string') }}",
               "body": "",
               "mailbox": "",

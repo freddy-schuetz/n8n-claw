@@ -1,0 +1,11 @@
+[Unit]
+Description=Prueft alle zehn Minuten, ob ein MCP-Server nur noch Fehler liefert
+
+[Timer]
+OnBootSec=300
+OnUnitActiveSec=600
+AccuracySec=30
+Unit=claw-werkzeugwacht.service
+
+[Install]
+WantedBy=timers.target

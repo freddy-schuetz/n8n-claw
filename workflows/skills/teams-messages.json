@@ -88,7 +88,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "send_teams_message",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "to": "={{ $fromAI('to', 'Name oder E-Mail-Adresse der Empfaengerin oder des Empfaengers', 'string') }}",
               "text": "={{ $fromAI('text', 'Der Nachrichtentext, hoechstens 1000 Zeichen', 'string') }}",
               "code": "={{ $fromAI('code', 'Code aus der Vorschau, nur nach ausdruecklichem Ja der Person', 'string') }}"

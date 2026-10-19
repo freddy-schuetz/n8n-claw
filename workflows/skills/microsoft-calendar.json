@@ -89,7 +89,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "list_events",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "start": "={{ $fromAI('start', 'Beginn im Format 2026-08-07T00:00:00, optional', 'string') }}",
               "end": "={{ $fromAI('end', 'Ende im Format 2026-08-14T00:00:00, optional', 'string') }}",
               "limit": "={{ $fromAI('limit', 'Hoechstzahl Termine, Vorgabe 25', 'string') }}"
@@ -152,7 +152,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "find_free_slots",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "start": "={{ $fromAI('start', 'Beginn des Suchzeitraums, 2026-08-07T08:00:00', 'string') }}",
               "end": "={{ $fromAI('end', 'Ende des Suchzeitraums, 2026-08-07T18:00:00', 'string') }}",
               "duration_min": "={{ $fromAI('duration_min', 'Gewuenschte Dauer in Minuten, Vorgabe 30', 'string') }}",
@@ -222,7 +222,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "colleague_schedule",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "for_email": "={{ $fromAI('for_email', 'E-Mail-Adresse der Person, bei SLT v.nachname@salzburgerland.com; mehrere mit Komma', 'string') }}",
               "start": "={{ $fromAI('start', 'Beginn, 2026-09-04T00:00:00, optional (Vorgabe heute)', 'string') }}",
               "end": "={{ $fromAI('end', 'Ende, 2026-09-04T23:59:59, optional (Vorgabe heute)', 'string') }}"
@@ -285,7 +285,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "create_event",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "subject": "={{ $fromAI('subject', 'Betreff', 'string') }}",
               "start": "={{ $fromAI('start', 'Beginn als Wandzeit ohne Zeitzone, 2026-08-07T10:00:00', 'string') }}",
               "end": "={{ $fromAI('end', 'Ende als Wandzeit ohne Zeitzone, 2026-08-07T11:00:00', 'string') }}",
@@ -376,7 +376,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "update_event",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "event_id": "={{ $fromAI('event_id', 'id des Termins aus list_events', 'string') }}",
               "subject": "={{ $fromAI('subject', 'Neuer Betreff, optional', 'string') }}",
               "start": "={{ $fromAI('start', 'Neuer Beginn als Wandzeit ohne Zeitzone, 2026-08-07T10:00:00, optional', 'string') }}",
@@ -474,7 +474,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "cancel_event",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "event_id": "={{ $fromAI('event_id', 'id des Termins aus list_events', 'string') }}",
               "comment": "={{ $fromAI('comment', 'Begruendung fuer die Absage, optional', 'string') }}",
               "confirm": "={{ $fromAI('confirm', 'true, wenn die Absage wirklich verschickt werden soll', 'string') }}"
@@ -537,7 +537,7 @@
             "mappingMode": "defineBelow",
             "value": {
               "action": "colleague_events",
-              "caller": "={{ $fromAI('caller', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
+              "caller": "={{ $fromAI('callerid', 'Wird vom Aufrufer gesetzt, nicht selbst ausfuellen', 'string') }}",
               "for_email": "={{ $fromAI('for_email', 'E-Mail-Adresse der Person, bei SLT v.nachname@salzburgerland.com, genau eine', 'string') }}",
               "start": "={{ $fromAI('start', 'Beginn, 2026-09-10T00:00:00, optional (Vorgabe jetzt)', 'string') }}",
               "end": "={{ $fromAI('end', 'Ende, 2026-09-17T00:00:00, optional (Vorgabe in sieben Tagen)', 'string') }}",

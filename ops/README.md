@@ -157,3 +157,118 @@ Fehler nicht zurueckkommt. Die wichtigsten davon:
 - Eine nicht zugestellte Telegram-Meldung darf nicht als zugestellt gelten.
 - Die Entwarnung darf keinen folgenden echten Alarm stumm schalten.
 - Ein flatternder Container muss den Deckel erreichen und einen Menschen rufen.
+
+---
+
+# Werkzeugwache, Rauchtest und MCP-Sperre (Runde 9, 19.10.2026)
+
+## Warum
+
+Nach dem n8n-Update vom 08.10.2026 (2.34.5 auf 2.42.3) waren Kalender, Mail,
+SharePoint, Jira, Teams-Bote und Google elf Tage tot. n8n sperrt seit 2.35.4
+den `$fromAI`-Schluessel `caller` (Sicherheitskorrektur GHSA-9x83-43r8-5hwc),
+jeder Aufruf endete mit "Invalid parameter key". Zugleich kamen
+Werkzeugaufrufe leer an: Sonnet 5 denkt seit n8n 2.37 ungefragt, und n8n
+spielt danach fruehere Aufrufe leer zurueck (Issue #40360). Niemand bekam eine
+Meldung: die Executions standen auf success, kein Fehler-Workflow loeste aus,
+und der Container-Waechter sah laufende Container. Sichtbar war es nur in
+`tool_audit_log`.
+
+## MCP-Endpunkte nur von innen
+
+Die MCP-Trigger der Skills haben keine eigene Anmeldung, und die Kennung der
+fragenden Person ist dort ein freies Argument. Bis zum 19.10.2026 reichte nginx
+`/mcp/` fuer jeden aus dem Internet an n8n weiter. Seitdem steht in
+`/etc/nginx/sites-available/n8n-claw` vor `location /` ein Block
+`location ~ ^/mcp(-test)?/`, der nur den Server selbst (127.0.0.1, ::1, die
+eigene IPv4 und IPv6) und die Docker-Netze (172.16.0.0/12) zulaesst. Rupert ruft
+seine Skills ueber die oeffentliche Adresse aus dem Docker-Netz auf und ist
+davon nicht betroffen. Eingebaut mit `projects/slt/setup/mcp-sperre.sh`
+(Sicherung, `nginx -t`, Probe von innen, Ruecknahme bei Fehler). Dauerhaft
+gehoert an jeden MCP-Trigger zusaetzlich ein Token (`mcp_registry.auth_type`,
+`auth_token`; der MCP Client liest beides schon).
+
+## Modelle
+
+`thinking=false` am Claude-Knoten gilt nur fuer `claude-sonnet-5`. Sonnet 5.5,
+Opus 5.5, Haiku 5.5 und Fable lehnen `thinking: disabled` mit 400 ab, und den
+Ersatz `between_tools` kennt der Knoten bis n8n 2.44.3 nicht. Diese Modelle
+erst einsetzen, wenn n8n den Fix fuer Issue #40360 (PR #41241) in einer Version
+ausliefert, und vorher in einer Wegwerf-Kopie testen. `tests/fromai-sperrliste.test.js`
+blockiert beides.
+
+## claw-werkzeugwacht.sh
+
+Laeuft alle zehn Minuten (`claw-werkzeugwacht.timer`), liest nur, startet
+nichts. Drei Regeln:
+
+1. Ein Server hat seit seinem letzten Erfolg mindestens drei Fehler (Fenster
+   24 Stunden).
+2. Ein Server hatte in 24 Stunden keinen Erfolg und mindestens zwei Fehler
+   (selten genutzte Server; Jira hatte im echten Ausfall zwei Aufrufe).
+3. In der letzten Stunde kamen mindestens drei Werkzeugaufrufe ohne Eingabe an
+   (das Denken ist wieder an oder n8n spielt Aufrufe leer zurueck).
+
+Als Fehler zaehlen `status = error` und `ok`-Eintraege, deren Ergebnis ein
+Fachfehler ist (`{"error": ...}`). Je Befund hoechstens eine Telegram-Meldung in
+sechs Stunden, nach einer Erholung einmal die Entwarnung. Gegen die echte
+Datenbank geprueft: am 12.10.2026 um 17:30 haette sie fuer den Kalender
+gemeldet, am 14.10.2026 um 11:00 fuer Mail, SharePoint und Jira. Teams-Bote und
+Google hatten keine Aufrufe; das deckt nur der Rauchtest ab.
+
+| Variable | Vorgabe | Zweck |
+|---|---|---|
+| `CLAW_WERKZEUG_SCHWELLE` | `3` | Fehler seit dem letzten Erfolg |
+| `CLAW_WERKZEUG_SCHWELLE_SELTEN` | `2` | Fehler ohne Erfolg in 24 Stunden |
+| `CLAW_WERKZEUG_SCHWELLE_LEER` | `3` | Aufrufe ohne Eingabe in `FENSTER_MIN` |
+| `CLAW_WERKZEUG_FENSTER_MIN` | `60` | Fenster fuer Regel 3 |
+| `CLAW_WERKZEUG_MELDE_ABSTAND_S` | `21600` | Drosselung je Befund |
+| `CLAW_WERKZEUG_ZUSTAND` | `/var/lib/claw-wacht/werkzeuge` | Zeitstempel je gemeldetem Befund |
+| `CLAW_WERKZEUG_LOG` | `/var/log/claw-werkzeugwacht.log` | Log |
+
+Tests: `bash ops/claw-werkzeugwacht.test.sh` (erfundene `docker`- und
+`curl`-Befehle, kein Server).
+
+## rauchtest.py: nach JEDEM n8n-Update
+
+```bash
+python3 /root/n8n-claw/ops/rauchtest.py            # jeder aktive MCP-Server einmal echt
+python3 /root/n8n-claw/ops/rauchtest.py --agent    # dazu eine Frage an den Agenten
+```
+
+`initialize` und `tools/list` liefen waehrend des ganzen Ausfalls sauber, der
+Fehler zeigt sich erst bei einem echten `tools/call`. Der Rauchtest macht je
+Server einen lesenden Aufruf mit dem Pilotkonto (`web:freddy`); Teams-Bote und
+Google enden absichtlich mit einem bestimmten Fachfehler vor jedem Schreiben.
+Ein Server ohne hinterlegten Probeaufruf gilt als nicht geprueft (KAPUTT).
+`--agent` stellt eine Frage, die Kalender und Confluence braucht, und prueft,
+dass beide ok sind, kein Aufruf leer ankam und die Kennung vom Client kam. Sie
+schreibt wie jede Anfrage in Verlauf, Tageslog und `tool_audit_log` (siehe
+Kopf von `rauchtest.py`). Rueckgabe 1, sobald etwas kaputt ist.
+
+Gegen den Stand vor dem Fix gelaufen (18.10.2026, 23:13): er meldete genau die
+sechs toten Server und liess Confluence, Vexa und Wetter gruen.
+
+## Einbau (zusaetzlich zum Container-Waechter)
+
+```bash
+install -m 755 claw-werkzeugwacht.sh /root/n8n-claw/ops/claw-werkzeugwacht.sh
+install -m 755 rauchtest.py          /root/n8n-claw/ops/rauchtest.py
+install -m 644 README.md             /root/n8n-claw/ops/README.md
+install -m 644 claw-werkzeugwacht.service /etc/systemd/system/claw-werkzeugwacht.service
+install -m 644 claw-werkzeugwacht.timer   /etc/systemd/system/claw-werkzeugwacht.timer
+systemctl daemon-reload
+systemctl enable --now claw-werkzeugwacht.timer
+```
+
+Hinweis: `/root/n8n-claw/ops` ist auf dem Server nicht versioniert (der
+Server-Checkout steht noch auf `34848f4`). Ein spaeteres `git pull` dort
+scheitert an den unversionierten Dateien, bis der Checkout auf den Zweigstand
+gebracht ist.
+
+## Commit-Sperre
+
+`.githooks/pre-commit` fuehrt `tests/fromai-sperrliste.test.js` auf dem
+gestagten Stand aus (gesperrte `$fromAI`-Schluessel in jeder Schreibweise,
+Denk-Einstellung passend zum Modell). Einschalten einmal je Klon:
+`git config core.hooksPath .githooks`.

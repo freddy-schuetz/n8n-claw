@@ -1,0 +1,13 @@
+#!/bin/sh
+# Blockiert Commits mit $fromAI-Schluesseln, die n8n zur Laufzeit ablehnt
+# (Runde 9, 19.10.2026: $fromAI('caller') legte Microsoft, Jira und Teams still lahm),
+# und Claude-Knoten, deren Denk-Einstellung nicht zum Modell passt.
+# Geprueft wird der gestagte Stand, nicht der Arbeitsbaum.
+# Einschalten einmal je Klon: git config core.hooksPath .githooks
+tmp=$(mktemp -d) || exit 1
+trap 'rm -rf "$tmp"' EXIT
+git checkout-index -a --prefix="$tmp/" || exit 1
+node "$tmp/tests/fromai-sperrliste.test.js" || {
+  echo "Commit blockiert, siehe oben."
+  exit 1
+}

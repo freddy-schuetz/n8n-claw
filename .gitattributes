@@ -4,3 +4,5 @@
 ops/*.sh text eol=lf
 ops/*.service text eol=lf
 ops/*.timer text eol=lf
+# Git-Haken laufen unter sh, CRLF macht sie unbrauchbar.
+.githooks/* text eol=lf
