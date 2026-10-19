@@ -272,3 +272,35 @@ gebracht ist.
 gestagten Stand aus (gesperrte `$fromAI`-Schluessel in jeder Schreibweise,
 Denk-Einstellung passend zum Modell). Einschalten einmal je Klon:
 `git config core.hooksPath .githooks`.
+
+# Alte Schwachstellen (Runde 10, 19.10.2026)
+
+Nur Workflow-Code, keine neuen Dienste. Tests unter `tests/` (konsolidierung,
+microsoft-erneuerung, heartbeat-offene-vorhaben, agent-history-geplant,
+teams-adapter-vorbereiten).
+
+## Naechtliche Zusammenfassung (Memory Consolidation)
+
+- Der Zeiger (`heartbeat_config`, `memory_consolidation`, `config.last_id`)
+  rueckt nur ueber Tage, die gespeichert sind oder schon eine Zusammenfassung
+  haben. Ein gescheiterter Tag steht in `config.fehlversuche` und wird in der
+  naechsten Nacht erneut versucht; nach drei Naechten wird er uebersprungen und
+  in `config.uebersprungen` vermerkt.
+- Einen Tag neu erzeugen: seinen Eintrag (`category = 'consolidated'`,
+  `metadata->>'date'`) loeschen und `last_id` vor den Tag setzen. Vorhandene
+  Tage werden uebersprungen, es entstehen keine Dubletten.
+- Das Protokoll traegt die Namen aus `user_profiles`, gegliedert nach Personen.
+
+## Microsoft-Zugaenge
+
+`reconnect_required` setzen der Hintergrundlauf und die Skills nur noch bei
+`invalid_grant` oder `interaction_required`. Netz, 5xx, 429, `invalid_client`
+und Speicherfehler lassen den Zugang verbunden, der Grund steht in
+`user_oauth_tokens.status_detail`, der naechste Lauf versucht es erneut.
+
+## Offene Vorhaben (Heartbeat)
+
+Die Nachfrage geht an `memory_long.owner_user_id`, einmal je Vorhaben
+(`metadata.nachgefragt_am`), werktags 8 bis 17 Uhr Wiener Zeit. Anders
+einstellen: `heartbeat_config` `open_loop_check`, `config.zeitfenster`
+(`zeitzone`, `von`, `bis`, `werktage`).

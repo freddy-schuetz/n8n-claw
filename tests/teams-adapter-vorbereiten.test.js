@@ -286,6 +286,47 @@ async function fall(name, fn) {
     assert.equal(r.json.user_id, 'web:michael');
   });
 
+  // --- Titel im Nachnamen (19.10.2026): Entra fuehrt sie bei SLT als "Hochreiter, MA".
+  // Daraus wurden "MA Victoria Hochreiter", "BA Matthias Berger", "(FH) Waltraud
+  // Paradeiser", "Alina Leitner," und "Leo Bauernberger,". ---
+  for (const [vor, nach, soll] of [
+    ['Victoria', 'Hochreiter, MA', 'Victoria Hochreiter'],
+    ['Matthias', 'Berger, BA', 'Matthias Berger'],
+    ['Waltraud', 'Paradeiser, Mag. (FH)', 'Waltraud Paradeiser'],
+    ['Alina', 'Leitner, BSc', 'Alina Leitner'],
+    ['Leo', 'Bauernberger, MSc', 'Leo Bauernberger'],
+    ['Eva', 'Haselsteiner, M.A.', 'Eva Haselsteiner'],
+    ['Thomas', 'Tax, LL.B.', 'Thomas Tax']
+  ]) {
+    await fall('Installation "' + vor + ' ' + nach + '" -> Profil "' + soll + '", Gruss mit Vornamen', async () => {
+      const u = umgebung();
+      const [r] = await vorbereiten.call(u.self, eingang(installation({ fromName: nach.split(',')[0] + ', ' + vor, givenName: vor, surname: nach })));
+      assert.equal(r.json.display_name, soll);
+      const p = nur(u.calls, 'POST', '/user_profiles');
+      assert.equal(p[0].body.display_name, soll);
+      assert.equal(p[0].body.name, soll);
+      assert.match(nur(u.calls, 'POST', '/reply')[0].body.text, new RegExp('^Servus ' + vor + ','));
+    });
+  }
+
+  await fall('Nachricht "Hochreiter, MA Victoria" -> Victoria Hochreiter, trifft das Web-Profil', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:victoria', display_name: 'Victoria Hochreiter' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(nachricht({ fromName: 'Hochreiter, MA Victoria' })));
+    assert.equal(r.json.user_id, 'web:victoria');
+  });
+
+  await fall('Nachricht "Leitner, Alina" bleibt "Alina Leitner" (Tausch wie bisher)', async () => {
+    const u = umgebung();
+    await vorbereiten.call(u.self, eingang(nachricht({ fromName: 'Leitner, Alina' })));
+    assert.equal(nur(u.calls, 'POST', '/user_profiles')[0].body.display_name, 'Alina Leitner');
+  });
+
+  await fall('Nachname "Ma" (kein Titel) bleibt, weil sonst nur ein Wort uebrig waere', async () => {
+    const u = umgebung();
+    const [r] = await vorbereiten.call(u.self, eingang(installation({ fromName: 'Ma, Long', givenName: 'Long', surname: 'Ma' })));
+    assert.equal(r.json.display_name, 'Long Ma');
+  });
+
   // Knoten "Abbruch melden"
   const abbruchCode = wf.nodes.find(n => n.name === 'Abbruch melden').parameters.jsCode;
   const abbruch = new AsyncFunction('$input', abbruchCode);
