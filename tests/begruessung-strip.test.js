@@ -17,7 +17,7 @@ const abbruch = new AsyncFunction('$input', '$', code);
 
 // Nachgebautes Umfeld: Build System Prompt meldet den Gruss-Stand, Merge Input
 // die Herkunft, this.helpers schluckt den Protokoll-Schreibzugriff.
-function umgebung(heuteBegruesst, quelle, anrede) {
+function umgebung(heuteBegruesst, quelle, anrede, nachricht) {
   const $ = (name) => ({ first: () => {
     if (name === 'Build System Prompt') {
       if (heuteBegruesst === 'fehlt') return { json: {} };
@@ -26,7 +26,7 @@ function umgebung(heuteBegruesst, quelle, anrede) {
       return { json: { heuteBegruesst, anredeQuelle: anrede === undefined
         ? 'lea steurer nenn mich babs oder nannerl sophie hannah rainer florian barbara' : anrede } };
     }
-    if (name === 'Merge Input') return { json: { source: quelle || 'web', qualifiedUserId: 'web:lea', sessionId: 'web:lea' } };
+    if (name === 'Merge Input') return { json: { source: quelle || 'web', qualifiedUserId: 'web:lea', sessionId: 'web:lea', userMessage: nachricht || 'Hallo Rupert' } };
     throw new Error('unbekannter Knoten: ' + name);
   } });
   return { $, ctx: { helpers: { httpRequest: async () => ({}) } } };
@@ -153,6 +153,24 @@ function pruefe(name, ok, info) {
   const u2 = umgebung(true, 'web');
   const [l] = await abbruch.call(u2.ctx, { first: () => ({ json: { output: 'Agent stopped due to max iterations.' } }) }, u2.$);
   pruefe('Iterationslimit: eigener Ersatztext', /zu viele Zwischenschritte/.test(l.json.output), l.json.output);
+
+  console.log('--- Runde 10b: Abbruch einer Nachfrage zu offenen Vorhaben ---');
+  // Die Person hat nichts geplant; ein Ersatztext ueber eine "geplante Aufgabe"
+  // waere fuer sie unverstaendlich. [SKIP] verwirft Speichern und Zustellung.
+  const NACHFRAGE = 'Du fragst proaktiv beim User nach alten offenen Vorhaben. Sende EINE kurze, freundliche Nachricht.';
+  const u3 = umgebung(false, 'scheduled_action', undefined, NACHFRAGE);
+  const [s1] = await abbruch.call(u3.ctx, { first: () => ({ json: { output: '' } }) }, u3.$);
+  pruefe('Nachfrage, leere Antwort: [SKIP] statt Ersatztext', s1.json.output === '[SKIP]' && s1.json._fallback === true, s1.json);
+  const [s2] = await abbruch.call(u3.ctx, { first: () => ({ json: { error: { message: 'Overloaded' } } }) }, u3.$);
+  pruefe('Nachfrage, Fehlerausgang: [SKIP]', s2.json.output === '[SKIP]', s2.json);
+  const [s3] = await abbruch.call(u3.ctx, { first: () => ({ json: { output: 'Servus Lea! Kurze Frage zur Broschüre: hat sich das erledigt?' } }) }, u3.$);
+  pruefe('Nachfrage mit Antwort: unveraendert', /^Servus Lea! Kurze Frage/.test(s3.json.output) && s3.json._fallback === false, s3.json);
+  const u4 = umgebung(false, 'scheduled_action', undefined, 'Erinnerung: Hermann-Bestellung');
+  const [s4] = await abbruch.call(u4.ctx, { first: () => ({ json: { output: '' } }) }, u4.$);
+  pruefe('andere geplante Aktion: Ersatztext wie bisher', /geplante Aufgabe/.test(s4.json.output), s4.json);
+  const u5 = umgebung(false, 'web', undefined, NACHFRAGE);
+  const [s5] = await abbruch.call(u5.ctx, { first: () => ({ json: { output: '' } }) }, u5.$);
+  pruefe('derselbe Text im Gespraech (kein geplanter Lauf) bleibt [SKIP]: Text stammt nur vom Heartbeat', s5.json.output === '[SKIP]', s5.json);
 
   console.log('\n' + (n - f) + ' von ' + n + ' Faellen bestanden');
   process.exit(f ? 1 : 0);

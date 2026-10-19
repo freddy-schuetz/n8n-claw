@@ -327,6 +327,168 @@ async function fall(name, fn) {
     assert.equal(r.json.display_name, 'Long Ma');
   });
 
+  // --- Runde 10b (Review 19.10.2026): Kurzformen nur in Titelschreibweise ---
+  await fall('Web "Xiao Ling Ma" darf NICHT an "Xiao Ling Wang" gebunden werden (Identitaet!)', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:xlma', display_name: 'Xiao Ling Ma' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(installation({ fromName: 'Wang, Xiao Ling', givenName: 'Xiao Ling', surname: 'Wang' })));
+    assert.equal(r.json.user_id, 'entra:' + OID);
+    assert.equal(nur(u.calls, 'POST', '/user_identity_map').length, 0);
+  });
+  await fall('Nachricht "Wang, Xiao Ling" bindet ebenfalls nicht an "Xiao Ling Ma"', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:xlma', display_name: 'Xiao Ling Ma' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(nachricht({ fromName: 'Wang, Xiao Ling' })));
+    assert.equal(r.json.user_id, 'entra:' + OID);
+    assert.equal(nur(u.calls, 'POST', '/user_identity_map').length, 0);
+  });
+  await fall('Web "Maria Mas Puig" bindet nicht an "Puig, Maria Elena"', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:mmp', display_name: 'Maria Mas Puig' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(nachricht({ fromName: 'Puig, Maria Elena' })));
+    assert.equal(r.json.user_id, 'entra:' + OID);
+  });
+  // Dritte Gegenlese: ein Web-Name mit Kurzform wird nie nach dem Namen zugeordnet,
+  // auch wenn es dieselbe Person waere (sie verbindet sich ueber Microsoft).
+  await fall('Web "Long Ma" und "Ma, Long Wei": nicht nach dem Namen zugeordnet (Kurzform im Web-Namen)', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:longma', display_name: 'Long Ma' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(nachricht({ fromName: 'Ma, Long Wei' })));
+    assert.equal(r.json.user_id, 'entra:' + OID);
+    assert.equal(nur(u.calls, 'POST', '/user_identity_map').length, 0);
+  });
+  for (const [vor, nach, soll, gruss] of [
+    ['Xiao Ling', 'Ma', 'Xiao Ling Ma', 'Xiao Ling'],
+    ['Mamadou Lamine', 'Ba', 'Mamadou Lamine Ba', 'Mamadou Lamine'],
+    ['Maria', 'Mas Puig', 'Maria Mas Puig', 'Maria'],
+    ['Van Ba', 'Nguyen', 'Van Ba Nguyen', 'Van Ba'],
+    ['Long', 'Ma, MSc', 'Long Ma', 'Long'],
+    ['Anna', 'Huber, M.Sc.', 'Anna Huber', 'Anna'],
+    ['Anna', 'Huber, B.Ed.', 'Anna Huber', 'Anna'],
+    ['Anna', 'Huber, Mag. phil.', 'Anna Huber', 'Anna'],
+    ['Anna', 'Huber, Dr. rer. nat.', 'Anna Huber', 'Anna'],
+    ['Phil', 'Collins', 'Phil Collins', 'Phil'],
+    ['Luca', 'di Marco', 'Luca di Marco', 'Luca']
+  ]) {
+    await fall('Installation "' + vor + '" / "' + nach + '" -> "' + soll + '"', async () => {
+      const u = umgebung();
+      const [r] = await vorbereiten.call(u.self, eingang(installation({ fromName: nach + ', ' + vor, givenName: vor, surname: nach })));
+      assert.equal(r.json.display_name, soll);
+      assert.match(nur(u.calls, 'POST', '/reply')[0].body.text, new RegExp('^Servus ' + gruss + ','));
+    });
+  }
+  // --- Zweite Gegenlese 19.10.2026: Kontext fuer Kurzformen, Web-Seite nur eindeutig ---
+  // Dritte Gegenlese: Web-Namen mit Kurzform (Di Marco, Ma, Mas Puig) werden nicht
+  // mehr nach dem Namen zugeordnet. Ob "MA" in Teams Titel oder Name ist, laesst sich
+  // nicht sicher sagen; ein Fehlgriff gaebe einer fremden Person die Identitaet.
+  for (const [web, teams, soll] of [
+    ['Luca Di Marco', { nachricht: 'DI MARCO, Luca' }, null],
+    ['Luca Di Marco', { nachricht: 'Luca DI MARCO' }, null],
+    ['Luca Di Marco', { installation: ['Luca', 'DI MARCO'] }, null],
+    ['Xiao Ling Ma', { nachricht: 'MA, Xiao Ling' }, null],
+    ['Maria Mas Puig', { nachricht: 'MAS PUIG, Maria' }, null],
+    ['Jean Pierre Mba', { nachricht: 'Obame, Jean Pierre' }, null],
+    ['Med Amine Trabelsi', { nachricht: 'Trabelsi, Amine' }, null],
+    ['Anna Maria Ing', { nachricht: 'Huber, Anna Maria' }, null],
+    ['Xiao Ling MA', { nachricht: 'Wang, Xiao Ling' }, null],
+    ['Victoria Hochreiter', { nachricht: 'Hochreiter, MA Victoria' }, 'web:ldm'],
+    ['Victoria Hochreiter', { installation: ['Victoria', 'Hochreiter, MA'] }, 'web:ldm'],
+    // dritte Gegenlese: fremde Person mit Titel neben einem gross geschriebenen Wort
+    ['Anna Ma', { nachricht: 'Huber, Anna, MA MPA' }, null],
+    ['Anna Ma', { nachricht: 'Huber, MA MPA Anna' }, null],
+    ['Anna Ma', { nachricht: 'Anna Huber MA MPA' }, null],
+    ['Anna Ma', { nachricht: 'HUBER, MA Anna' }, null],
+    ['Anna Ma', { nachricht: 'HUBER MA, Anna' }, null],
+    ['Anna Ma', { installation: ['Anna', 'Huber, MA MPA'] }, null],
+    ['Lea Ba', { nachricht: 'Steurer BA, LEA' }, null],
+    ['Anna Ba', { nachricht: 'Huber, BA MPH Anna' }, null],
+    // Kurztitel im Web-Namen: wie oben nicht nach dem Namen (Web-Namen ohne Titel anlegen)
+    ['Victoria Hochreiter MA', { nachricht: 'Hochreiter, MA Victoria' }, null],
+    ['Waltraud Paradeiser', { nachricht: 'Paradeiser, Mag. (FH) Waltraud' }, 'web:ldm'],
+    ['Anna Huber', { nachricht: 'Huber, Anna, MA MPA' }, 'web:ldm']
+  ]) {
+    const was = teams.nachricht ? 'Nachricht "' + teams.nachricht + '"' : 'Installation "' + teams.installation.join('" / "') + '"';
+    await fall('Web "' + web + '" und ' + was + ': ' + (soll ? 'zugeordnet' : 'NICHT zugeordnet'), async () => {
+      const u = umgebung({ web: [{ user_id: 'web:ldm', display_name: web }] });
+      const eing = teams.nachricht ? nachricht({ fromName: teams.nachricht })
+        : installation({ fromName: teams.installation[1] + ', ' + teams.installation[0], givenName: teams.installation[0], surname: teams.installation[1] });
+      const [r] = await vorbereiten.call(u.self, eingang(eing));
+      assert.equal(r.json.user_id, soll || ('entra:' + OID));
+      assert.equal(nur(u.calls, 'POST', '/user_identity_map').length, soll ? 1 : 0);
+    });
+  }
+  for (const [vor, nach, soll, gruss] of [
+    ['Waltraud', 'Paradeiser, Mag. (fh)', 'Waltraud Paradeiser', 'Waltraud'],
+    ['Anna', 'Huber, m.a.', 'Anna Huber', 'Anna'],
+    ['Anna', 'Huber, BED', 'Anna Huber', 'Anna'],
+    ['Anna', 'Huber, Mag. pharm.', 'Anna Huber', 'Anna'],
+    ['Anna', 'Huber, Ph.D.', 'Anna Huber', 'Anna'],
+    ['Anna', 'Huber, BBA', 'Anna Huber', 'Anna'],
+    ['DIin Anna', 'Huber', 'Anna Huber', 'Anna'],
+    ['Univ.-Prof. Dr. Anna', 'Huber', 'Anna Huber', 'Anna'],
+    ['Dr. h.c. Anna', 'Huber', 'Anna Huber', 'Anna'],
+    ['Ing. Anna', 'Huber', 'Anna Huber', 'Anna'],
+    ['Art', 'Garfunkel', 'Art Garfunkel', 'Art'],
+    ['Ing', 'Bergmann', 'Ing Bergmann', 'Ing']
+  ]) {
+    await fall('Installation "' + vor + '" / "' + nach + '" -> "' + soll + '", Gruss "' + gruss + '"', async () => {
+      const u = umgebung();
+      const [r] = await vorbereiten.call(u.self, eingang(installation({ fromName: nach + ', ' + vor, givenName: vor, surname: nach })));
+      assert.equal(r.json.display_name, soll);
+      assert.match(nur(u.calls, 'POST', '/reply')[0].body.text, new RegExp('^Servus ' + gruss + ','));
+    });
+  }
+
+  for (const [von, soll] of [
+    ['Hochreiter MA, Victoria', 'Victoria Hochreiter'],
+    ['Berger BA, Matthias', 'Matthias Berger'],
+    ['Paradeiser Mag. (FH), Waltraud', 'Waltraud Paradeiser'],
+    ['Ma, Xiao Ling', 'Xiao Ling Ma'],
+    ['Ba, Mag. Amadou', 'Amadou Ba'],
+    ['Ma, Dr. Long', 'Long Ma'],
+    ['Huber, Anna, MA MPA', 'Anna Huber'],
+    ['Huber, Anna, MBA MPH', 'Anna Huber'],
+    // vierte Gegenlese: ein Nachbar jenseits des Kommas macht MA nicht zum Namen
+    ['HOCHREITER, MA Victoria', 'Victoria HOCHREITER'],
+    ['BERGER, BA Anna', 'Anna BERGER'],
+    ['DI MARCO, Luca', 'Luca DI MARCO'],
+    ['MAS PUIG, Maria', 'Maria MAS PUIG'],
+    ['Luca DI MARCO', 'Luca DI MARCO']
+  ]) {
+    await fall('Nachricht "' + von + '" -> Profil "' + soll + '"', async () => {
+      const u = umgebung();
+      await vorbereiten.call(u.self, eingang(nachricht({ fromName: von })));
+      assert.equal(nur(u.calls, 'POST', '/user_profiles')[0].body.display_name, soll);
+    });
+  }
+
+  // Vierte Gegenlese: ein Kurzform-Profil zaehlt weiter als Treffer und sperrt so
+  // eine mehrdeutige Zuordnung; zugeordnet wird es selbst nie.
+  for (const [web, von] of [
+    [[{ user_id: 'web:mmp', display_name: 'Maria Mas Puig' }, { user_id: 'web:ep', display_name: 'Elena Puig' }], 'Mas Puig, Maria Elena'],
+    [[{ user_id: 'web:mmp', display_name: 'Maria Mas Puig' }, { user_id: 'web:ep', display_name: 'Elena Puig' }], 'MAS PUIG, Maria Elena'],
+    [[{ user_id: 'web:ldm', display_name: 'Luca Di Marco' }, { user_id: 'web:pm', display_name: 'Paolo Marco' }], 'Di Marco, Luca Paolo'],
+    [[{ user_id: 'web:mmp', display_name: 'Maria Mas Puig' }], 'Mas Puig, Maria Elena']
+  ]) {
+    await fall('Web ' + web.map(p => '"' + p.display_name + '"').join(' + ') + ', Nachricht "' + von + '": niemand zugeordnet', async () => {
+      const u = umgebung({ web });
+      const [r] = await vorbereiten.call(u.self, eingang(nachricht({ fromName: von })));
+      assert.equal(r.json.user_id, 'entra:' + OID);
+      assert.equal(nur(u.calls, 'POST', '/user_identity_map').length, 0);
+    });
+  }
+  await fall('Installation ohne Vor- und Nachname, "HOCHREITER, MA Victoria": Gruss "Servus Victoria"', async () => {
+    const u = umgebung();
+    const [r] = await vorbereiten.call(u.self, eingang(installation({ fromName: 'HOCHREITER, MA Victoria', givenName: '', surname: '' })));
+    assert.equal(r.json.display_name, 'Victoria HOCHREITER');
+    assert.match(nur(u.calls, 'POST', '/reply')[0].body.text, /^Servus Victoria,/);
+  });
+
+  await fall('Web "Sophie Strasser" und "Sophie Ma", Nachricht "Strasser, Sophie, MA MPA": eindeutig web:sophie', async () => {
+    const u = umgebung({ web: [{ user_id: 'web:sophie', display_name: 'Sophie Strasser' }, { user_id: 'web:sma', display_name: 'Sophie Ma' }] });
+    const [r] = await vorbereiten.call(u.self, eingang(nachricht({ fromName: 'Strasser, Sophie, MA MPA' })));
+    assert.equal(r.json.user_id, 'web:sophie');
+    const map = nur(u.calls, 'POST', '/user_identity_map');
+    assert.equal(map.length, 1);
+    assert.equal(map[0].body.legacy_key, 'web:sophie');
+  });
+
   // Knoten "Abbruch melden"
   const abbruchCode = wf.nodes.find(n => n.name === 'Abbruch melden').parameters.jsCode;
   const abbruch = new AsyncFunction('$input', abbruchCode);

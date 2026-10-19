@@ -24,9 +24,10 @@ function zeilen() {
   return z;
 }
 
+let zeilenQuelle = null;
 async function run(query) {
   const urls = [];
-  const alle = zeilen();
+  const alle = zeilenQuelle || zeilen();
   const helpers = {
     async httpRequest(o) {
       const url = String(o.url || '');
@@ -48,7 +49,7 @@ function pruefe(name, ok, info) { n++; if (!ok) f++; console.log((ok ? 'PASS ' :
 (async () => {
   let r = await run({ session_id: 'web:florian', limit: '30' });
   const ids = r.out.messages.map(m => m.id);
-  pruefe('holt die doppelte Menge mit metadata', /limit=60/.test(r.urls[0]) && /select=id,role,content,created_at,metadata/.test(r.urls[0]), r.urls);
+  pruefe('holt die vierfache Menge mit metadata (Runde 10b)', /limit=120/.test(r.urls[0]) && /select=id,role,content,created_at,metadata/.test(r.urls[0]), r.urls);
   pruefe('genau 30 Nachrichten, damit die Oberflaeche weiterblaettert', r.out.messages.length === 30, r.out.messages.length);
   pruefe('keine geplante Auftragszeile', !ids.some(id => id % 10 === 0), ids);
   pruefe('die neuesten, aufsteigend sortiert', ids[ids.length - 1] === 99 && ids.every((x, i) => i === 0 || x > ids[i - 1]), ids);
@@ -70,6 +71,30 @@ function pruefe(name, ok, info) { n++; if (!ok) f++; console.log((ok ? 'PASS ' :
   const soll = zeilen().filter(z => z.id % 10 !== 0).map(z => z.id);
   pruefe('Blaettern: alle 90 sichtbaren Zeilen genau einmal, keine Luecke', gesehen.join() === soll.join(), { gesehen: gesehen.length, soll: soll.length });
   pruefe('Zeile ohne metadata (alter Stand) bleibt sichtbar', gesehen.includes(3), gesehen.slice(0, 5));
+
+  // Review 19.10.2026: eine Sitzung, in der fast nur geplante Laeufe stehen
+  // (Auftrag und Antwort im Wechsel), dazu verwaiste Auftragszeilen ohne Antwort.
+  // Mit der doppelten Menge brach das Blaettern dort nach 29 Nachrichten ab.
+  const voll = [];
+  for (let id = 1; id <= 200; id++) {
+    const auftrag = id % 2 === 1 || id % 37 === 0;
+    voll.push({ id, role: auftrag ? 'user' : 'assistant', content: 'Z' + id, created_at: '2026-10-19T08:00:00Z', metadata: auftrag ? { source: 'scheduled_action' } : { source: 'web' } });
+  }
+  zeilenQuelle = voll;
+  const gesehen2 = [];
+  vor = null; runden = 0; mehr = true;
+  while (mehr && runden < 20) {
+    runden++;
+    const q = { session_id: 'web:florian', limit: '30' };
+    if (vor) q.before_id = String(vor);
+    const s = await run(q);
+    gesehen2.unshift(...s.out.messages.map(m => m.id));
+    mehr = s.out.messages.length >= 30;
+    vor = s.out.oldest_id;
+  }
+  const soll2 = voll.filter(z => z.role === 'assistant').map(z => z.id);
+  pruefe('Sitzung voller geplanter Laeufe: jede Antwort erreichbar, keine doppelt', gesehen2.join() === soll2.join(), { gesehen: gesehen2.length, soll: soll2.length });
+  zeilenQuelle = null;
 
   r = await run({ session_id: '' });
   pruefe('ohne Sitzung: leer wie bisher', Array.isArray(r.out.messages) && r.out.messages.length === 0 && r.urls.length === 0, r);

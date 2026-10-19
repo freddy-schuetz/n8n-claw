@@ -1781,7 +1781,7 @@ fi
 # ── 11e. Wire error workflow to critical workflows ──────────
 ERROR_WF_ID=${WF_IDS['error-notification']}
 if [ -n "$ERROR_WF_ID" ]; then
-  for target in n8n-claw-agent background-checker sub-agent-runner; do
+  for target in n8n-claw-agent background-checker sub-agent-runner memory-consolidation; do
     target_id=${WF_IDS[$target]}
     [ -z "$target_id" ] && continue
     WF_JSON=$(curl -s "${N8N_BASE}/api/v1/workflows/${target_id}" \

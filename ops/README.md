@@ -304,3 +304,62 @@ Die Nachfrage geht an `memory_long.owner_user_id`, einmal je Vorhaben
 (`metadata.nachgefragt_am`), werktags 8 bis 17 Uhr Wiener Zeit. Anders
 einstellen: `heartbeat_config` `open_loop_check`, `config.zeitfenster`
 (`zeitzone`, `von`, `bis`, `werktage`).
+
+Runde 10b:
+- Gesetzliche Feiertage in Oesterreich sind eingebaut. Weitere freie Tage in
+  `config.zeitfenster.feiertage` als `YYYY-MM-DD` oder `DD.MM.YYYY`, zum
+  Beispiel `["24.12.2026", "31.12.2026", "24.09.2027"]` (Rupertitag).
+- Hoechstens `config.max_personen` Personen je Lauf (Vorgabe 8), eine
+  Nachricht je Person. Eine Person mit Vorhaben unter Web- und Teams-Kennung
+  bekommt eine Nachricht (Aufloesung ueber `user_identity_map`).
+- Ohne persoenlichen Teams-Chat und ohne Web-Sitzung bekommt eine Person keine
+  Nachfrage; das Vorhaben traegt `metadata.nachfrage_unzustellbar_am` und wird
+  nach 14 Tagen erneut versucht.
+- Ist der juengste Schluessel zu einer Entra-Kennung `telegram:<nummer>`
+  (Microsoft aus Telegram verbunden), geht die Nachfrage nach Telegram.
+
+## Teams-Zuordnung nach dem Namen (Runde 10b)
+
+Der Adapter ordnet eine neue Teams-Person einem Web-Profil zu, wenn alle Woerter
+des Web-Namens im Teams-Namen stehen und genau ein Profil passt. Ein Web-Name mit
+einer Kurzform, die Titel oder Name sein kann (Ma, Ba, Mas, Di, Mba, Med), wird
+nie nach dem Namen zugeordnet: ob "MA" in Teams Titel oder Name ist, laesst sich
+nicht sicher sagen, und ein Fehlgriff gaebe einer fremden Person Gedaechtnis und
+Microsoft-Zugang. Als Treffer zaehlt so ein Profil aber weiter, damit ein zweiter
+passender Name die Zuordnung sperrt. Solche Personen werden in
+`user_identity_map` von Hand zugeordnet, oder sie verbinden Microsoft aus der
+Weboberflaeche (dann gilt die verifizierte Kennung). Achtung: der
+Microsoft-Login aus Teams (ms-oauth, Handle Callback, Abschnitt 6b) ordnet noch
+nach der alten Namensregel zu, ohne Titelbehandlung und ohne diese Sperre
+(offen). Web-Anzeigenamen deshalb immer als "Vorname Nachname" ohne Titel anlegen.
+
+## Konsolidierung: Meldungen und Schalter (Runde 10b)
+
+- Bei einem Ausfall, einem Tagesfehler oder einem endgueltig uebersprungenen
+  Tag endet die Ausfuehrung als Fehler. Der Fehler-Workflow (Error
+  Notification) schickt dann eine Telegram-Meldung mit Grund und legt eine
+  Zeile in `memory_long` (category `error`) an.
+- `config.fehlgruende` haelt den letzten Grund je Tag, `config.fehlversuche`
+  die Zahl der Versuche. Ein Handlauf (`konsolidierung-nachholen.py`) zaehlt
+  wie eine Nacht.
+- `config.max_tokens` (Vorgabe 4096) begrenzt die Zusammenfassung; reicht es
+  nicht, wird einmal mit 8000 wiederholt. Ein weiterer Versuch bekommt
+  hoechstens 170 s und nie mehr, als die Laufzeit des Knotens hergibt
+  (`config.laufzeit_s`, Vorgabe 300 wie `N8N_RUNNERS_TASK_TIMEOUT`). Scheitert
+  er, zaehlt das als Tagesfehler. Ein spaeterer Tag, fuer den die Zeit nicht
+  mehr reicht, wartet ohne Fehler auf die naechste Nacht (`deferred_reason`).
+- Laeuft schon der erste Aufruf in sein Zeitlimit (120 s), ist das ein Ausfall
+  und kein Tagesfehler, weil es genauso ein Haenger von Netz oder API sein kann;
+  so geht bei einer Stoerung kein Tag verloren. Steht dieselbe Meldung ("timeout
+  of 120000ms exceeded") mehrere Naechte hintereinander, ist der Tag fuer das
+  Modell zu gross oder das Modell zu langsam: `config.max_tokens` senken (1024,
+  bei sehr langsamem Modell 512), dann endet der erste Aufruf frueher, und die
+  Wiederholung greift.
+- Antwortet das Modell mit "Keine Arbeitsinhalte" und weiterem Text davor oder
+  dahinter, fragt die Konsolidierung einmal nach; bleibt es bei beidem, ist es
+  ein Tagesfehler, und gespeichert wird nichts. Als reine Marke gilt sie mit
+  jedem Rand ohne Buchstaben und Ziffern und mit "relevanten", "nennenswerten",
+  "weiteren" oder "vorhanden".
+- Die Einbettung bekommt hoechstens 16000 Zeichen, gespeichert wird der ganze Text.
+- Die Zusammenfassung haelt nur Arbeitswissen fest; Persoenliches und was
+  Rupert aus Postfach, Kalender, Dateien oder Chats wiedergibt, bleibt draussen.

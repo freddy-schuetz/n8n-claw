@@ -25,7 +25,11 @@ const FAELLE = {
   client: () => ({ statusCode: 401, body: { error: 'invalid_client', error_description: 'AADSTS7000215: Invalid client secret provided.' } }),
   netz: () => { const e = new Error('getaddrinfo EAI_AGAIN login.microsoftonline.com'); e.code = 'EAI_AGAIN'; throw e; },
   dienst: () => ({ statusCode: 503, body: '<html>Service Unavailable</html>' }),
-  zeichen: () => ({ statusCode: 400, body: JSON.stringify({ error: 'invalid_grant', error_description: 'AADSTS50173: The provided grant has expired due to it being revoked.' }) })
+  zeichen: () => ({ statusCode: 400, body: JSON.stringify({ error: 'invalid_grant', error_description: 'AADSTS50173: The provided grant has expired due to it being revoked.' }) }),
+  zustimmung: () => ({ statusCode: 400, body: { error: 'consent_required', error_description: 'AADSTS65001: The user or administrator has not consented.' } }),
+  anmelden: () => ({ statusCode: 400, body: { error: 'login_required', error_description: 'AADSTS50058: A silent sign-in request was sent but no user is signed in.' } }),
+  drossel: () => ({ statusCode: 429, body: { error: 'temporarily_unavailable', error_description: 'AADSTS50196: The server terminated an operation.' } }),
+  ohneToken: () => ({ statusCode: 200, body: { token_type: 'Bearer' } })
 };
 
 let n = 0, f = 0;
@@ -61,7 +65,7 @@ async function hintergrund(personen, opts) {
         if (opts.upsertFehler && opts.upsertFehler.includes(b.p_user_key)) throw new Error('upsert 500');
         upserts.push(b); return 1;
       }
-      if (url.includes('rpc/mark_user_token')) { marks.push(JSON.parse(o.body)); return 1; }
+      if (url.includes('rpc/mark_user_token')) { marks.push(JSON.parse(o.body)); if (opts.markWirft) throw new Error('mark 500'); return 1; }
       throw new Error('unerwarteter Aufruf ' + url);
     }
   };
@@ -85,14 +89,14 @@ const SKILLS = [
 
 async function skill(s, fall, opts) {
   opts = opts || {};
-  const marks = [], upserts = [], graph = [];
+  const marks = [], upserts = [], graph = [], tokenAufrufe = [];
   const helpers = {
     async httpRequest(o) {
       const url = String(o.url || '');
       if (url.includes('template_credentials')) return CREDS;
       if (url.includes('user_identity_map')) return [{ entra_key: 'entra:mike' }];
-      if (url.includes('rpc/get_user_token')) return [{ status: 'connected', access_token: 'ALT', refresh_token: 'RT', scopes: 'x', expires_at: new Date(Date.now() - 60e3).toISOString() }];
-      if (url.includes('login.microsoftonline.com')) return FAELLE[fall]();
+      if (url.includes('rpc/get_user_token')) return [{ status: 'connected', access_token: 'ALT', refresh_token: 'RT', scopes: 'x', expires_at: new Date(Date.now() + (opts.rest === undefined ? -60e3 : opts.rest)).toISOString() }];
+      if (url.includes('login.microsoftonline.com')) { tokenAufrufe.push(o); return FAELLE[fall](); }
       if (url.includes('rpc/upsert_user_token')) { if (opts.upsertFehler) throw new Error('upsert 500'); upserts.push(JSON.parse(o.body)); return 1; }
       if (url.includes('rpc/mark_user_token')) { marks.push(JSON.parse(o.body)); return 1; }
       if (url.includes('graph.microsoft.com')) {
@@ -106,7 +110,7 @@ async function skill(s, fall, opts) {
   };
   const fn = new AsyncFunction('$input', 'helpers', skillCode(s.file) + '\n//# sourceURL=' + s.file);
   const out = await fn({ first: () => ({ json: Object.assign({ caller: 'web:mike' }, s.input) }) }, helpers);
-  return { out: out[0].json, marks, upserts, graph };
+  return { out: out[0].json, marks, upserts, graph, tokenAufrufe };
 }
 
 (async () => {
@@ -132,6 +136,13 @@ async function skill(s, fall, opts) {
   pruefe('Speichern scheitert nach Erneuerung: kein reconnect_required', !r.marks.some(m => m.p_user_key === 'entra:speichern' && m.p_status === 'reconnect_required'), mark('entra:speichern'));
   pruefe('Ergebnis nennt die drei Gruppen', /Erneuert: entra:ok/.test(r.result) && /Muss neu verbinden: .*entra:grant/.test(r.result) && /Naechster Lauf versucht es erneut: .*entra:netz/.test(r.result), r.result);
   pruefe('reconnect_required nur fuer invalid_grant, interaction_required und fehlenden refresh_token', r.marks.filter(m => m.p_status === 'reconnect_required').map(m => m.p_user_key).sort().join(',') === 'entra:grant,entra:interaktion,entra:ohnert,entra:zeichen', r.marks);
+  pruefe('Token-Anfrage mit Zeitlimit 30 s', r.tokenAufrufe.every(o => o.timeout === 30000), r.tokenAufrufe.map(o => o.timeout));
+  const r2 = await hintergrund([{ key: 'entra:zust', fall: 'zustimmung' }, { key: 'entra:anm', fall: 'anmelden' }, { key: 'entra:dross', fall: 'drossel' }, { key: 'entra:leer', fall: 'ohneToken' }]);
+  const mark2 = k => r2.marks.filter(m => m.p_user_key === k);
+  pruefe('consent_required und login_required: reconnect_required (Runde 10b)', mark2('entra:zust')[0] && mark2('entra:zust')[0].p_status === 'reconnect_required' && mark2('entra:anm')[0] && mark2('entra:anm')[0].p_status === 'reconnect_required', r2.marks);
+  pruefe('429 temporarily_unavailable und 200 ohne access_token: bleiben connected', mark2('entra:dross')[0] && mark2('entra:dross')[0].p_status === 'connected' && mark2('entra:leer')[0] && mark2('entra:leer')[0].p_status === 'connected' && r2.upserts.length === 0, r2.marks);
+  const r3 = await hintergrund([{ key: 'entra:grant', fall: 'grant' }, { key: 'entra:ok', fall: 'ok' }], { markWirft: true });
+  pruefe('Vermerk wirft: der Lauf endet trotzdem und erneuert die anderen', /Erneuert: entra:ok/.test(r3.result), r3.result);
 
   for (const s of SKILLS) {
     console.log('--- Skill ' + s.file + ' ---');
@@ -147,6 +158,22 @@ async function skill(s, fall, opts) {
     pruefe('invalid_client: kein Vermerk, "gestoert" statt neu verbinden', x.marks.length === 0 && /gestoert/.test(x.out.error) && /AADSTS7000215/.test(x.out.error) && !/neu verbinden/.test(x.out.error), x);
     x = await skill(s, 'dienst');
     pruefe('503: kein Vermerk', x.marks.length === 0 && /HTTP 503/.test(x.out.error), x);
+    x = await skill(s, 'interaktion');
+    pruefe('interaction_required: reconnect_required', x.marks.length === 1 && x.marks[0].p_status === 'reconnect_required' && /neu verbinden/.test(x.out.error), x);
+    x = await skill(s, 'zustimmung');
+    pruefe('consent_required: reconnect_required (Runde 10b)', x.marks.length === 1 && /neu verbinden/.test(x.out.error), x);
+    x = await skill(s, 'netz', { rest: 4 * 60e3 });
+    pruefe('Netzfehler, alter Zugang gilt noch 4 Minuten: Aufruf laeuft mit dem alten Zugang (Runde 10b)', !x.out.error && x.graph.length > 0 && x.graph.every(g => g.auth === 'Bearer ALT') && x.marks.length === 0, x);
+    x = await skill(s, 'dienst', { rest: 4 * 60e3 });
+    pruefe('503, alter Zugang gilt noch: Aufruf laeuft mit dem alten Zugang', !x.out.error && x.graph.every(g => g.auth === 'Bearer ALT'), x);
+    x = await skill(s, 'grant', { rest: 4 * 60e3 });
+    pruefe('invalid_grant bleibt Abmeldung, auch wenn der alte Zugang noch gilt', x.marks.length === 1 && /neu verbinden/.test(x.out.error) && x.graph.length === 0, x);
+    x = await skill(s, 'netz', { rest: 30e3 });
+    pruefe('Netzfehler, alter Zugang nur noch 30 s: Fehlermeldung statt Zugang', /nicht erreichbar/.test(x.out.error), x);
+    x = await skill(s, 'ok', { rest: 20 * 60e3 });
+    pruefe('Zugang mit mehr als 5 Minuten: keine Erneuerung', x.tokenAufrufe.length === 0 && x.graph.every(g => g.auth === 'Bearer ALT'), x.tokenAufrufe.length);
+    x = await skill(s, 'ok');
+    pruefe('Token-Anfrage mit returnFullResponse, ignoreHttpStatusErrors und Zeitlimit', x.tokenAufrufe.length === 1 && x.tokenAufrufe[0].returnFullResponse === true && x.tokenAufrufe[0].ignoreHttpStatusErrors === true && x.tokenAufrufe[0].timeout === 30000, x.tokenAufrufe);
   }
 
   console.log('\n' + (n - f) + ' von ' + n + ' bestanden');
