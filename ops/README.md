@@ -261,10 +261,10 @@ systemctl daemon-reload
 systemctl enable --now claw-werkzeugwacht.timer
 ```
 
-Hinweis: `/root/n8n-claw/ops` ist auf dem Server nicht versioniert (der
-Server-Checkout steht noch auf `34848f4`). Ein spaeteres `git pull` dort
-scheitert an den unversionierten Dateien, bis der Checkout auf den Zweigstand
-gebracht ist.
+Hinweis: Seit 24.10.2026 steht der Server-Checkout auf dem Zweigstand, und
+`/root/n8n-claw/ops` ist versioniert. `claw-wacht.sh` traegt seit demselben Tag
+auch im Zweig das Ausfuehrungsrecht: systemd startet die Skripte direkt, ohne
+`x` liefe der Container-Waechter nicht an.
 
 ## Commit-Sperre
 
@@ -363,3 +363,86 @@ nach der alten Namensregel zu, ohne Titelbehandlung und ohne diese Sperre
 - Die Einbettung bekommt hoechstens 16000 Zeichen, gespeichert wird der ganze Text.
 - Die Zusammenfassung haelt nur Arbeitswissen fest; Persoenliches und was
   Rupert aus Postfach, Kalender, Dateien oder Chats wiedergibt, bleibt draussen.
+
+---
+
+# n8n-Version: Pin und Update-Takt (24.10.2026)
+
+## Warum gepinnt
+
+Bis zum 08.10.2026 stand in `docker-compose.yml` `n8nio/n8n:latest`. Jeder
+`docker compose pull` und jedes `setup.sh` zog damit still die neueste
+n8n-Version, und das Update vom 08.10.2026 legte Kalender, Mail, SharePoint,
+Jira, Teams-Bote und Google elf Tage lahm (siehe Runde 9 oben). Seitdem ist n8n fest gepinnt, seit 19.10.2026
+auf `2.43.7`: diese Version schliesst die Sicherheitsluecken der Stufe high vom
+14.10.2026, die 2.42.x offen liess. Bis zum 24.10.2026 stand der Pin nur in der
+Datei auf dem Server, seitdem auch im Zweig `slt`. Fuer das Produkt n8n-claw
+(Zweig `main`) gilt das nicht, dort bleibt `latest`.
+
+Der Preis: Sicherheitskorrekturen von n8n kommen nicht von selbst. Deshalb der
+feste Takt.
+
+## Takt
+
+- Monatlich pruefen, ob es eine neuere stabile Version gibt, und ihre Release
+  Notes lesen: Breaking Changes, neue Sperren fuer `$fromAI`-Schluessel,
+  Aenderungen am AI Agent, an den Anthropic-Knoten und an den MCP-Knoten.
+  Naechste Pruefung spaetestens am 24.11.2026.
+- Sofort, wenn n8n eine Sicherheitsluecke der Stufe high oder critical meldet,
+  die die laufende Version betrifft.
+- Sobald der Fix fuer Issue #40360 (PR #41241) in einer Version ausgeliefert
+  ist. Erst danach kommen neuere Claude-Modelle in Frage (Abschnitt Modelle).
+
+## Ablauf
+
+Grundregel: Der Zweig pinnt nie eine andere Version als die, die auf dem Server
+laeuft. Den Pin erst pushen, wenn `update-n8n.sh` mit 0 geendet hat und der
+Rauchtest gruen ist, und den Server gleich danach nachziehen. Dazwischen kein
+`setup.sh` und kein `docker compose up`: beide ziehen und starten, was in der
+Compose-Datei steht, und machten das Update dann ohne Sicherung und Rueckweg.
+
+1. Neue Version waehlen und die Release Notes lesen.
+2. Auf dem Server `update-n8n.sh <alt> <neu>` aus dem privaten Repo
+   (`projects/slt/setup/update-n8n.sh`, per `scp` nach `/tmp`): Vorpruefung,
+   Image ziehen, `pg_dump`, Pause fuer den Container-Waechter, nur den Dienst
+   n8n neu erzeugen, Gesundheit pruefen, bei Fehler zurueck auf die alte
+   Version. Das Skript stellt die Zeile in `docker-compose.yml` auf dem Server
+   selbst um.
+3. `python3 /root/n8n-claw/ops/rauchtest.py --agent`, danach die Zeilen der
+   Sitzung `web:rauchtest` und das Tageslog des Pilotkontos seit Beginn
+   loeschen (siehe Kopf von `rauchtest.py`).
+4. Den Pin im Zweig `slt` auf die neue Version setzen, committen, pushen. Dann
+   den Server-Checkout nachziehen. Ohne `git stash`: die Datei aus dem Zweig
+   ersetzt die schon umgestellte (gleicher Pin), wird vorgemerkt, dann folgt
+   ein reiner fast-forward. So traegt die Datei zu keinem Zeitpunkt eine andere
+   Version als die laufende:
+
+   ```bash
+   cd /root/n8n-claw && git fetch -q origin slt
+   NEU=$(docker exec n8n-claw n8n --version | tr -d '\r')
+   if git show origin/slt:docker-compose.yml | grep -qx "    image: n8nio/n8n:$NEU"; then
+     git show origin/slt:docker-compose.yml > docker-compose.yml.neu &&
+       mv docker-compose.yml.neu docker-compose.yml &&
+       git add docker-compose.yml && git merge --ff-only origin/slt
+   else
+     echo "Der Zweig pinnt nicht die laufende Version $NEU, nichts geaendert"
+   fi
+   git status --short docker-compose.yml     # muss leer sein
+   grep -n 'image: n8nio/n8n:' docker-compose.yml
+   ```
+
+5. Ruecknahme: `update-n8n.sh <neu> <alt>`, danach den Pin im Zweig
+   zuruecksetzen und wie in Schritt 4 nachziehen. Kommt die alte Version auf
+   der schon umgestellten Datenbank nicht hoch (Rueckgabe 2 oder 3 von
+   `update-n8n.sh`), von Hand: n8n stoppen, die Sicherung aus Schritt 2
+   (Zeile `Sicherung:` der Ausgabe, Ordner `runde9-n8n-<neu>-<zeit>` unter
+   `/root/backups`) mit `pg_restore` einspielen, die Image-Zeile auf `<alt>`
+   setzen, `docker compose up -d --no-deps n8n`. Die Daten seit dem Update
+   gehen dabei verloren; das entscheidet ein Mensch.
+
+## Achtung bei setup.sh
+
+Auf dem SLT-Server steht `SKIP_REVERSE_PROXY=false`. Jeder `setup.sh`-Lauf
+schreibt deshalb `/etc/nginx/sites-available/n8n-claw` neu und nimmt dabei die
+MCP-Sperre aus Runde 9 heraus. Nach jedem `setup.sh`-Lauf
+`projects/slt/setup/mcp-sperre.sh` (privates Repo) erneut ausfuehren.

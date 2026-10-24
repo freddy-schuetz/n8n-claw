@@ -3,7 +3,9 @@ version: '3.8'
 services:
   # ── n8n ─────────────────────────────────────────────────────
   n8n:
-    image: n8nio/n8n:latest
+    # SLT: fest gepinnt, angehoben nur bewusst mit Sicherung und Rauchtest
+    # (Takt und Ablauf: ops/README.md, Abschnitt "n8n-Version").
+    image: n8nio/n8n:2.43.7
     container_name: n8n-claw
     restart: unless-stopped
     ports:
