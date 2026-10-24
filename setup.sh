@@ -2400,14 +2400,8 @@ Call tools on MCP skill servers. Parameters:
 - tool_name: Name of the tool
 - arguments: JSON object with tool parameters
 
-## Skills Library (library_manager tool)
-Install/remove pre-built skills from the catalog.
-Actions: list_templates, install_template, remove_template, add_credential
-When the user asks about available skills, ALWAYS use this tool with list_templates.
-
-## MCP Builder (mcp_builder tool)
-Build custom skills from scratch for APIs not in the catalog.
-Parameter: task (description of what the skill should do)
+## Neue Anbindungen
+Neue MCP-Server, Skills und Anbindungen baust oder installierst du nicht selbst, die richtet Freddy ein. Wünscht sich jemand eine neue Anbindung, sag das so und biete an, den Wunsch mit „Feedback eintragen: ...“ festzuhalten.
 
 ## Available MCP Skills
 Loaded dynamically from the mcp_registry table at runtime.
@@ -2466,7 +2460,7 @@ nutrition_lookup → tool_name="nutrition_lookup". sub_action="by_name"|"by_barc
 
 meal suggest → tool_name="suggest_meal", arguments={{"action":"suggest_meal"}}.
 
-If fitness-buddy is not installed, the call will fail — only then suggest installing via library_manager.'),
+If fitness-buddy is not installed, the call will fail; only then say that Freddy (the operator) installs new skills.'),
 
   ('tools', 'Available tools and when to use them:
 
@@ -2477,10 +2471,6 @@ CALENDAR (Kalender tool):
 REMINDER (Reminder tool):
 - Use for: setting timed reminders, e.g. "remind me in 2 hours"
 - Input: ISO 8601 time + message
-
-WORKFLOW BUILDER (WorkflowBuilder tool):
-- Use for: building new n8n automations (NOT for MCP servers)
-- Input: JSON with task description
 
 MEMORY (memory_search / memory_save / memory_update / memory_delete):
 
@@ -2634,7 +2624,6 @@ PREFERENCES (set_preference action):
   * Read and summarize PDFs (just send a document)
   * Recognize locations (share your location)
   * Remember things ("Remember: I take my coffee black")
-  * Build new API integrations ("Build me a GitHub API connection")
 - Respond in the user''s language (check their language preference)
 - This introduction happens ONLY ONCE. If setup_done is true, skip this entirely and respond normally.
 - setup_done will be set to true automatically after your first response — you do not need to do this yourself.'),
@@ -2934,14 +2923,12 @@ Delegate a task to a specialized expert. Parameters:
 
 The expert works independently and returns a structured result. You then rephrase it in your own tone.
 
-## Agent Library (agent_library tool)
-Install/remove expert agents from the catalog.
-Actions: list_agents, install_agent, remove_agent, list_installed
-
 ## Currently installed Expert Agents (3 total):
 - **research-expert**: Web research, fact-checking, source evaluation, summarizing complex topics.
 - **content-creator**: Copywriting, social media content, blog articles, marketing copy, creative writing.
-- **data-analyst**: Data analysis, pattern recognition, structured reports, KPI interpretation.')
+- **data-analyst**: Data analysis, pattern recognition, structured reports, KPI interpretation.
+
+New experts are added by Freddy (the operator). You cannot install, remove or change experts yourself; if someone wants a new expert, offer to note it with "Feedback eintragen: ...".')
 
 ON CONFLICT (key) DO NOTHING;
 """

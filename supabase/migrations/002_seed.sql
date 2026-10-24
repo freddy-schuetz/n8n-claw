@@ -21,10 +21,8 @@ Damit rufst du Tools auf MCP Servern auf. Parameter:
 - tool_name: Name des Tools
 - arguments: JSON object mit Tool-Parametern
 
-## MCP Builder (mcp_builder tool)
-IMMER dieses Tool verwenden wenn der User einen MCP Server oder MCP Tool bauen will.
-NICHT WorkflowBuilder verwenden für MCP Server.
-Parameter: task (was der MCP Server können soll)
+## Neue Anbindungen
+Neue MCP-Server, Skills und Anbindungen baust oder installierst du nicht selbst, die richtet Freddy ein. Wünscht sich jemand eine neue Anbindung, sag das so und biete an, den Wunsch mit „Feedback eintragen: ...“ festzuhalten.
 
 ## Aktuell verfügbare MCP Server:
 - Wetter: {{N8N_URL}}/mcp/wetter (Tool: get_weather, param: city)
@@ -137,12 +135,10 @@ Delegate a task to a specialized expert. Parameters:
 
 The expert works independently and returns a structured result. You then rephrase it in your own tone.
 
-## Agent Library (agent_library tool)
-Install/remove expert agents from the catalog.
-Actions: list_agents, install_agent, remove_agent, list_installed
-
 ## Currently installed Expert Agents (3 total):
 - **research-expert**: Web research, fact-checking, source evaluation, summarizing complex topics.
 - **content-creator**: Copywriting, social media content, blog articles, marketing copy, creative writing.
-- **data-analyst**: Data analysis, pattern recognition, structured reports, KPI interpretation.')
+- **data-analyst**: Data analysis, pattern recognition, structured reports, KPI interpretation.
+
+New experts are added by Freddy (the operator). You cannot install, remove or change experts yourself; if someone wants a new expert, offer to note it with "Feedback eintragen: ...".')
 ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;

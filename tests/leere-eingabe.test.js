@@ -19,7 +19,7 @@ const ZIELE = {
   'workflows/background-checker.json': ['Web Search', 'Web Reader'],
 };
 const UNBERUEHRT = {
-  'workflows/n8n-claw-agent.json': ['Memory Delete', 'Memory Update', 'Entity Manager', 'Self Modify', 'Task Manager', 'Project Manager', 'MCP Client'],
+  'workflows/n8n-claw-agent.json': ['Memory Delete', 'Memory Update', 'Entity Manager', 'Task Manager', 'Project Manager', 'MCP Client'],
   'workflows/sub-agent-runner.json': ['HTTP Request Tool', 'MCP Client'],
   'workflows/background-checker.json': ['HTTP Request Tool', 'MCP Client'],
 };
