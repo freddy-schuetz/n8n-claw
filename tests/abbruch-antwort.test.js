@@ -19,7 +19,11 @@ function loadCode(nodeName) {
 }
 
 const abbruch = new AsyncFunction('$input', loadCode('Abbruch-Antwort'));
-const speichern = new AsyncFunction('$input', '$', 'helpers', loadCode('Save Conversation and Log'));
+const speichernRoh = new AsyncFunction('$input', '$', 'helpers', '$execution', loadCode('Save Conversation and Log'));
+// Runde 11b: der Knoten liest die Werkzeuge dieser Ausfuehrung aus dem
+// tool_audit_log; ohne $execution gilt der Lauf als persoenlich (siehe
+// tests/b3-tagesprotokoll.test.js). Hier laeuft kein Werkzeug.
+const speichern = (i, $, h) => speichernRoh(i, $, h, { id: '4711' });
 
 const LIMIT_TEXT = /zu viele Zwischenschritte/;
 const FEHLER_TEXT = /technischer Fehler/;
@@ -34,6 +38,7 @@ function umgebung({ antwort, bsp, profil }) {
   const calls = [];
   const helpers = { httpRequest: async (req) => {
     calls.push({ m: req.method, url: String(req.url), body: req.body ? JSON.parse(req.body) : null });
+    if (req.method === 'GET' && String(req.url).includes('/tool_audit_log')) return [];
     return {};
   } };
   const $ = (name) => ({ first: () => {

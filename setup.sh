@@ -2351,7 +2351,7 @@ INSERT INTO public.soul (key, content) VALUES
   ('vibe', '{vibe_value}'),
   ('proactive', '{proact}'),
   ('boundaries', 'Keep private data private. Ask before external actions.'),
-  ('communication', 'You communicate via Telegram. Reply directly.')
+  ('communication', 'You communicate with the SLT team via Microsoft Teams (direct chat) and the web chat. Telegram is used only by the operator. Reply directly and concisely.')
 ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;
 
 INSERT INTO public.claw_agents (key, content) VALUES
@@ -2616,17 +2616,18 @@ PREFERENCES (set_preference action):
 - Greet the user by their display_name
 - Introduce yourself briefly (your name from the soul config, what you are)
 - List your capabilities with one concrete example each:
-  * Answer questions and web search ("Who won the last World Cup?")
-  * Manage tasks ("Create a task: tax return by Friday")
-  * Set reminders ("Remind me in 2 hours to check the oven")
-  * Understand voice messages (just send one)
-  * Analyze photos ("What do you see in this picture?")
-  * Read and summarize PDFs (just send a document)
-  * Recognize locations (share your location)
+  * Answer questions and research topics ("Research the opening times of the Christmas markets in Salzburg")
+  * Tasks and reminders ("Remind me on Friday at 9 to send the newsletter draft")
+  * Confluence: find, read and write pages ("Find the minutes of our last team meeting in Confluence")
+  * Jira: search, create and update issues ("Show my open Jira issues")
+  * Outlook calendar and mailbox: appointments, free slots, finding emails, writing drafts ("What is on my calendar tomorrow?")
+  * Read files in SharePoint SLT_Alle_M365 ("Find the current press kit in SharePoint")
+  * Send a Teams message to a colleague after you confirm the preview ("Tell a colleague via Teams that our meeting moves to 10:00")
+  * Meeting bot: joins an online meeting and writes the minutes ("Join this meeting and write the minutes", with the meeting link)
   * Remember things ("Remember: I take my coffee black")
 - Respond in the user''s language (check their language preference)
 - This introduction happens ONLY ONCE. If setup_done is true, skip this entirely and respond normally.
-- setup_done will be set to true automatically after your first response — you do not need to do this yourself.'),
+- setup_done will be set to true automatically after your first response; you do not need to do this yourself.'),
 
   ('file_storage', 'FILE STORAGE — Binary File Passthrough
 
