@@ -72,6 +72,34 @@ async function fall(name, fn) {
     const r = await lauf({ action: 'list_sessions' });
     assert.equal(r.json.success, true);
   });
+
+  // Runde 11, Teilrunde 1: file:// und lokale Dateipfade kann der Browser nicht
+  // oeffnen und sie fuehren nach innen. Abweisen, Hinweis auf SharePoint
+  // search_files (NICHT read_file mit Pfad, das kommt erst spaeter).
+  const lokal = [
+    ['file://-Adresse als url', { action: 'task', task: 'Lies die Datei vor', url: 'file:///etc/passwd' }],
+    ['file:// gross geschrieben', { action: 'task', task: 'Oeffne die Datei dort', url: 'FILE:///root/.ssh/id_rsa' }],
+    ['file://localhost als url', { action: 'task', task: 'Lies die Datei vor', url: 'file://localhost/etc/shadow' }],
+    ['Windows-Laufwerkspfad C:\\ als url', { action: 'task', task: 'Oeffne die Datei', url: 'C:\\Users\\fried\\secret.txt' }],
+    ['Windows-Laufwerkspfad c:/ als domain', { action: 'task', task: 'Datei dort oeffnen', domain: 'c:/windows/win.ini' }],
+    ['absoluter Unix-Pfad /etc als url', { action: 'task', task: 'Lies die Datei vor', url: '/etc/passwd' }],
+    ['UNC-Pfad als url', { action: 'task', task: 'Oeffne die Freigabe', url: '\\\\server\\share\\geheim.txt' }],
+  ];
+  for (const [name, raw] of lokal) {
+    await fall(name + ' wird abgewiesen', async () => {
+      const r = await lauf(raw);
+      assert.equal(r.json.success, false);
+      assert.match(r.json.error, /Lokale Dateipfade und file:\/\/ kann der Browser nicht oeffnen/);
+      assert.match(r.json.error, /search_files/);
+      assert.doesNotMatch(r.json.error, /read_file/);
+      assert.equal(r.aufrufe.length, 0);
+    });
+  }
+  await fall('Dateiname nur im Auftragstext, echte Adresse: laeuft', async () => {
+    const r = await lauf({ action: 'task', task: 'Lade die Datei preisliste.pdf von der Seite herunter', url: 'https://orf.at' });
+    assert.doesNotMatch(String(r.json.error || ''), /Lokale Dateipfade/);
+    assert.equal(r.aufrufe.length, 1);
+  });
   console.log('');
   console.log((n - fehler) + ' von ' + n + ' Faellen bestanden');
   process.exit(fehler ? 1 : 0);
