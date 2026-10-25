@@ -2,6 +2,11 @@
 // Workflow-Datei: Knoten "Abbruch-Antwort" (Ersatztext bei Fehler, Limit oder
 // leerer Antwort) und "Save Conversation and Log" (kein Tagesprotokoll bei
 // einem Ersatztext, Kennzeichnung in den metadata der Assistant-Zeile).
+// Seit Runde 11 Teilrunde 2 (B12, E3): ein Modellfehler (Fehlerausgang des AI
+// Agent ohne Limit) bekommt den ehrlichen Text ohne Zusage, die nicht gehalten
+// wird, und einen Vermerk mit metadata.alarm = agent_abbruch im scope betrieb
+// (30 Tage); die Werkzeugwache meldet ihn Freddy. Diese Faelle laufen mit
+// this.helpers, sonst saehe der Test den Vermerk nie.
 //   node tests/abbruch-antwort.test.js
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -19,6 +24,7 @@ function loadCode(nodeName) {
 }
 
 const abbruch = new AsyncFunction('$input', loadCode('Abbruch-Antwort'));
+const abbruchMitUmfeld = new AsyncFunction('$input', '$', loadCode('Abbruch-Antwort'));
 const speichernRoh = new AsyncFunction('$input', '$', 'helpers', '$execution', loadCode('Save Conversation and Log'));
 // Runde 11b: der Knoten liest die Werkzeuge dieser Ausfuehrung aus dem
 // tool_audit_log; ohne $execution gilt der Lauf als persoenlich (siehe
@@ -27,10 +33,64 @@ const speichern = (i, $, h) => speichernRoh(i, $, h, { id: '4711' });
 
 const LIMIT_TEXT = /zu viele Zwischenschritte/;
 const FEHLER_TEXT = /technischer Fehler/;
+const E3 = 'Da ist bei mir gerade ein technisches Problem aufgetreten, deine Anfrage kann ich im Moment nicht bearbeiten. '
+  + 'Freddy wird automatisch benachrichtigt. Versuch es bitte in einer Viertelstunde noch einmal.';
+const TAGE30 = 30 * 24 * 3600 * 1000;
 
 async function abbruchMit(json) {
   const [r] = await abbruch({ first: () => ({ json }) });
   return r.json;
+}
+
+function modellText(output) {
+  assert.equal(output, E3);
+  assert.match(output, /technisches Problem aufgetreten/);
+  assert.match(output, /Freddy wird automatisch benachrichtigt/);
+  assert.match(output, /Viertelstunde/);
+  assert.doesNotMatch(output, /gleich noch einmal/);
+}
+
+// Knoten mit this.helpers und $: (Ergebnis, POST-Aufrufe).
+async function mitVermerk(json, { quelle, nachricht, wirft } = {}) {
+  const calls = [];
+  const ctx = { helpers: { httpRequest: async (req) => {
+    calls.push({ m: req.method, url: String(req.url), headers: req.headers, body: req.body ? JSON.parse(req.body) : null });
+    if (wirft) throw new Error('503');
+    return '';
+  } } };
+  const $ = (name) => ({ first: () => {
+    if (name === 'Merge Input') return { json: { source: quelle || 'teams', qualifiedUserId: 'entra:abc', sessionId: 'teams:a:k1', userMessage: nachricht || 'Wann ist die naechste Sitzung?' } };
+    if (name === 'Build System Prompt') return { json: { heuteBegruesst: false } };
+    throw new Error('unbekannter Knoten: ' + name);
+  } });
+  const [r] = await abbruchMitUmfeld.call(ctx, { first: () => ({ json }) }, $);
+  return { r: r.json, calls };
+}
+
+function vermerkPruefen(calls, mitAlarm) {
+  assert.equal(calls.length, 1);
+  const c = calls[0];
+  assert.equal(c.m, 'POST');
+  assert.equal(c.url, 'http://stub.local/rest/v1/memory_long');
+  assert.equal(c.headers.apikey, 'stub-key');
+  assert.equal(c.headers.Authorization, 'Bearer stub-key');
+  const b = c.body;
+  assert.equal(b.scope, 'betrieb');
+  assert.equal(b.category, 'error');
+  assert.equal(b.importance, 7);
+  assert.equal(b.source, 'task_result');
+  assert.ok(Math.abs(Date.parse(b.expires_at) - (Date.now() + TAGE30)) < 60000, 'expires_at 30 Tage');
+  assert.equal(b.owner_user_id, undefined);
+  assert.equal(b.entity_name, undefined);
+  assert.equal(b.metadata.fallback, true);
+  if (mitAlarm) {
+    assert.equal(b.metadata.alarm, 'agent_abbruch');
+    assert.ok(b.metadata.grund);
+  } else {
+    assert.equal(b.metadata.alarm, undefined);
+    assert.equal(b.metadata.fehlerart, undefined);
+  }
+  return b;
 }
 
 // Nachgebautes n8n-Umfeld fuer "Save Conversation and Log"
@@ -75,9 +135,9 @@ async function fall(name, fn) {
     assert.match(r._fehler, /Max iterations/);
   });
 
-  await fall('Fehler als String (429) -> Fehler-Text', async () => {
+  await fall('Fehler als String (429) -> ehrlicher Text ohne Zusage (E3)', async () => {
     const r = await abbruchMit({ error: '429 rate limit' });
-    assert.match(r.output, FEHLER_TEXT);
+    modellText(r.output);
     assert.equal(r._fallback, true);
     assert.equal(r._fehler, '429 rate limit');
   });
@@ -96,11 +156,101 @@ async function fall(name, fn) {
     assert.equal(r._fehler, 'leere Antwort');
   });
 
-  await fall('Fehlerobjekt ohne message wird lesbar gekuerzt', async () => {
+  await fall('Fehlerobjekt ohne message wird lesbar gekuerzt, ehrlicher Text (E3)', async () => {
     const r = await abbruchMit({ error: { code: 'ECONNRESET' } });
-    assert.match(r.output, FEHLER_TEXT);
+    modellText(r.output);
     assert.match(r._fehler, /ECONNRESET/);
     assert.ok(r._fehler.length <= 300);
+  });
+
+  console.log('--- Abbruch-Antwort: Vermerk und Alarm (Runde 11 Teilrunde 2) ---');
+  await fall('21.10.2026 (Ausfuehrung 202591, Guthaben): E3-Text, Vermerk betrieb mit Alarm, Art anfrage_oder_guthaben', async () => {
+    // Am Knoten kam nur die n8n-Meldung zu HTTP 400 an; dieselbe Meldung kommt
+    // nach einem Modellwechsel, mit Denken oder bei zu langem Prompt. Darum
+    // nicht guthaben (die Wache schickte sonst immer zum Anthropic-Konto).
+    const { r, calls } = await mitVermerk({ error: 'Bad request - please check your parameters' });
+    modellText(r.output);
+    assert.equal(r._fallback, true);
+    assert.equal(r._fehler, 'Bad request - please check your parameters');
+    const b = vermerkPruefen(calls, true);
+    assert.equal(b.metadata.fehlerart, 'anfrage_oder_guthaben');
+    assert.equal(b.metadata.grund, 'Bad request - please check your parameters');
+    assert.equal(b.metadata.quelle, 'teams');
+    assert.equal(b.content, 'Agent-Abbruch (technischer Fehler) bei entra:abc in Sitzung teams:a:k1: Bad request - please check your parameters');
+  });
+
+  await fall('Guthaben, Schluessel, Ueberlast, Anfrage und sonst: E3-Text und Alarm, Art als Hinweis', async () => {
+    const faelle = [
+      ['Payment required - perhaps check your payment details?', 'guthaben'],
+      ['400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}', 'guthaben'],
+      ['400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 210000 tokens > 200000 maximum"}}', 'anfrage_oder_guthaben'],
+      ['Authorization failed - please check your credentials', 'schluessel'],
+      ['401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}', 'schluessel'],
+      ['Forbidden - perhaps check your credentials?', 'schluessel'],
+      ['The service is receiving too many requests from you', 'ueberlast'],
+      ['The service failed to process your request', 'ueberlast'],
+      ['529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', 'ueberlast'],
+      ['503 Service Unavailable', 'ueberlast'],
+      ['socket hang up', 'sonst'],
+    ];
+    for (const [msg, art] of faelle) {
+      const { r, calls } = await mitVermerk({ error: msg });
+      modellText(r.output);
+      const b = vermerkPruefen(calls, true);
+      assert.equal(b.metadata.fehlerart, art, msg);
+    }
+    const { r, calls } = await mitVermerk({ error: { code: 'ECONNRESET' } });
+    modellText(r.output);
+    assert.equal(vermerkPruefen(calls, true).metadata.fehlerart, 'sonst');
+    // Fehlerobjekt nur mit der Beschreibung des Anbieters: die sagt Guthaben.
+    const x = await mitVermerk({ error: { description: 'Your credit balance is too low to access the Anthropic API.' } });
+    modellText(x.r.output);
+    assert.equal(vermerkPruefen(x.calls, true).metadata.fehlerart, 'guthaben');
+  });
+
+  await fall('Limit (Fehler und Ausgabe): alter Limit-Text, Vermerk betrieb mit Ablauf, ohne Alarm', async () => {
+    for (const json of [{ error: { message: 'Max iterations (15) reached' } }, { output: 'Agent stopped due to max iterations.' }]) {
+      const { r, calls } = await mitVermerk(json);
+      assert.match(r.output, LIMIT_TEXT);
+      const b = vermerkPruefen(calls, false);
+      assert.match(b.content, /^Agent-Abbruch \(zu viele Zwischenschritte\)/);
+    }
+  });
+
+  await fall('leere Antwort: alter Text, Vermerk betrieb mit Ablauf, ohne Alarm', async () => {
+    const { r, calls } = await mitVermerk({ output: '   ' });
+    assert.match(r.output, FEHLER_TEXT);
+    assert.equal(r._fehler, 'leere Antwort');
+    vermerkPruefen(calls, false);
+  });
+
+  await fall('geplanter Lauf und Nachfrage mit Modellfehler: eigener Text, Alarm trotzdem', async () => {
+    let x = await mitVermerk({ error: 'Bad request - please check your parameters' }, { quelle: 'scheduled_task' });
+    assert.match(x.r.output, /geplante Aufgabe/);
+    assert.equal(vermerkPruefen(x.calls, true).metadata.quelle, 'scheduled_task');
+    x = await mitVermerk({ error: 'Bad request - please check your parameters' },
+      { quelle: 'heartbeat', nachricht: 'Du fragst proaktiv beim User nach alten offenen Vorhaben. Sende EINE kurze Nachricht.' });
+    assert.equal(x.r.output, '[SKIP]');
+    vermerkPruefen(x.calls, true);
+  });
+
+  await fall('normale Antwort: kein Vermerk', async () => {
+    const { r, calls } = await mitVermerk({ output: 'Es ist 14:05.' });
+    assert.equal(r.output, 'Es ist 14:05.');
+    assert.equal(calls.length, 0);
+  });
+
+  await fall('Vermerk scheitert: der Text kommt trotzdem', async () => {
+    const { r, calls } = await mitVermerk({ error: 'Bad request - please check your parameters' }, { wirft: true });
+    modellText(r.output);
+    assert.equal(calls.length, 1);
+  });
+
+  await fall('kein Bot-Token im Agenten, kein Guthaben- oder Kostenhinweis im Text', async () => {
+    const code = loadCode('Abbruch-Antwort');
+    assert.doesNotMatch(code, /api\.telegram\.org|TELEGRAM_BOT_TOKEN|\{\{TELEGRAM/);
+    assert.doesNotMatch(E3, /Guthaben|Kosten|Anthropic|credit|Euro|Konto/i);
+    assert.ok(code.includes(E3), 'E3-Text steht woertlich im Knoten');
   });
 
   console.log('--- Save Conversation and Log ---');
