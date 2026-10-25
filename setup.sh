@@ -1778,31 +1778,108 @@ print(json.dumps({'name': wf['name'], 'nodes': nodes, 'connections': conns, 'set
   fi
 fi
 
-# ── 11e. Wire error workflow to critical workflows ──────────
+# ── 11e. Wire error workflow to every workflow of the instance ──────────
+# All workflows of the instance via the API, not only the four in WF_IDS
+# (Runde 11 Teilrunde 2, B40 part C, L9): setup.sh does not import the Teams
+# Adapter, MS OAuth, MS Token Refresh or any skill, and after --force (the
+# Error Notification gets a new ID) their references pointed to the deleted
+# one. Skipped: the Error Notification itself (it would trigger itself),
+# archived workflows, workflows wired to another existing error workflow, and
+# active workflows whose draft differs from the published version (the PUT
+# would overwrite the draft; set those by hand). Only settings.errorWorkflow
+# changes: active workflows are written from their published version with
+# publishIfActive (otherwise the runtime keeps the old settings), inactive
+# ones from their draft. If the workflow list cannot be read, the block falls
+# back to the workflows this run imported (WF_IDS), so the agent and the
+# other critical workflows are always wired, as before. Output is ASCII only.
 ERROR_WF_ID=${WF_IDS['error-notification']}
 if [ -n "$ERROR_WF_ID" ]; then
-  for target in n8n-claw-agent background-checker sub-agent-runner memory-consolidation; do
-    target_id=${WF_IDS[$target]}
-    [ -z "$target_id" ] && continue
-    WF_JSON=$(curl -s "${N8N_BASE}/api/v1/workflows/${target_id}" \
-      -H "X-N8N-API-KEY: ${N8N_API_KEY}")
-    PATCHED_ERR=$(echo "$WF_JSON" | python3 -c "
-import sys, json
-ALLOWED = set('${N8N_SETTINGS_WHITELIST}'.split(','))
-wf = json.load(sys.stdin)
-nodes = wf.get('nodes') or wf.get('activeVersion',{}).get('nodes',[])
-conns = wf.get('connections') or wf.get('activeVersion',{}).get('connections',{})
-settings = {k: v for k, v in wf.get('settings',{}).items() if k in ALLOWED}
-settings['errorWorkflow'] = '${ERROR_WF_ID}'
-print(json.dumps({'name': wf['name'], 'nodes': nodes, 'connections': conns, 'settings': settings}))
-" 2>/dev/null)
-    if [ -n "$PATCHED_ERR" ]; then
-      echo "$PATCHED_ERR" | curl -s -X PUT "${N8N_BASE}/api/v1/workflows/${target_id}" \
-        -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
-        -H "Content-Type: application/json" -d @- > /dev/null
-      echo "  ✅ ${target} → error workflow ${ERROR_WF_ID}"
-    fi
-  done
+  python3 - "$ERROR_WF_ID" "${WF_IDS[@]}" <<PYEOF || echo "  WARN error workflow: wiring step failed, nothing else changed"
+import json, ssl, sys, urllib.error, urllib.request
+BASE = "${N8N_BASE}/api/v1"
+KEY = "${N8N_API_KEY}"
+ALLOWED = set("${N8N_SETTINGS_WHITELIST}".split(","))
+err_id = sys.argv[1]
+# The workflows this run imported: the fallback if the list is not readable.
+imported = [x for x in sys.argv[2:] if x and x != err_id]
+ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+
+
+def call(method, path, body=None):
+    req = urllib.request.Request(BASE + path, method=method,
+                                 data=None if body is None else json.dumps(body).encode("utf-8"),
+                                 headers={"X-N8N-API-KEY": KEY, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, context=ctx, timeout=60) as r:
+        raw = r.read()
+        return json.loads(raw) if raw else {}
+
+
+def why(e):
+    return "HTTP %s" % e.code if isinstance(e, urllib.error.HTTPError) else type(e).__name__
+
+
+ids, cursor = [], None
+while True:
+    try:
+        page = call("GET", "/workflows?limit=100" + ("&cursor=" + cursor if cursor else ""))
+    except Exception as e:
+        # In the fallback, another existing error workflow is only recognised
+        # among these IDs.
+        if imported:
+            print("  WARN error workflow: workflow list not readable (%s), falling back to the %d workflows "
+                  "imported by this run" % (why(e), len(imported)))
+        else:
+            print("  WARN error workflow: workflow list not readable (%s), nothing wired" % why(e))
+        ids = list(dict.fromkeys(ids + imported))
+        break
+    ids += [w["id"] for w in page.get("data", []) if w.get("id")]
+    cursor = page.get("nextCursor")
+    if not cursor:
+        break
+
+done = already = skipped = 0
+for wid in ids:
+    if wid == err_id:
+        continue
+    try:
+        wf = call("GET", "/workflows/" + wid)
+    except Exception as e:
+        print("  WARN %s: not readable (%s)" % (wid, why(e)))
+        skipped += 1
+        continue
+    if wf.get("isArchived"):
+        continue
+    settings = {k: v for k, v in (wf.get("settings") or {}).items() if k in ALLOWED}
+    current = settings.get("errorWorkflow") or ""
+    if current == err_id:
+        already += 1
+        continue
+    if current in ids:
+        print("  WARN %s: wired to another error workflow (%s), left as is" % (wid, current))
+        skipped += 1
+        continue
+    av = wf.get("activeVersion") or {}
+    if wf.get("active"):
+        if wf.get("versionId") != wf.get("activeVersionId") or not av.get("nodes"):
+            print("  WARN %s: draft differs from the published version, set the error workflow by hand" % wid)
+            skipped += 1
+            continue
+        nodes, conns = av.get("nodes"), av.get("connections") or {}
+    else:
+        nodes, conns = wf.get("nodes") or [], wf.get("connections") or {}
+    settings["errorWorkflow"] = err_id
+    body = {"name": wf.get("name") or wid, "nodes": nodes, "connections": conns, "settings": settings}
+    for extra in ("staticData", "nodeGroups"):
+        if wf.get(extra):
+            body[extra] = wf[extra]
+    try:
+        call("PUT", "/workflows/%s?publishIfActive=true" % wid, body)
+        done += 1
+    except Exception as e:
+        print("  WARN %s: PUT failed (%s)" % (wid, why(e)))
+        skipped += 1
+print("  OK error workflow %s: %d set, %d already set, %d skipped" % (err_id, done, already, skipped))
+PYEOF
 fi
 
 fi  # end INSTALL_MODE guard for workflows
@@ -2690,36 +2767,16 @@ CONSISTENCY:
 - The graph complements memory — memory stores facts and preferences, the graph stores relationships
 - Do NOT create entities for trivial mentions — only for subjects the user cares about or that come up repeatedly'),
 
-  ('error_log', 'WORKFLOW ERROR LOG — proactive failure awareness
+  ('error_log', 'WORKFLOW ERRORS (operator log, not visible to you)
 
-A global Error Notification workflow catches failures in the main agent, background-checker, and sub-agent-runner. Every failure is logged to memory_long with:
-- category = ''error''
-- importance = 8
-- tags include ''error'', ''workflow-failure'', and the workflow name
-- entity_name = ''workflow:<workflow_name>''
-- content = human-readable summary (workflow name, timestamp, error message, failing node, execution URL)
-- metadata (jsonb) contains execution_id, execution_url, execution_mode, workflow_id, workflow_name, node_name, error_name, error_message and a truncated error_stack
+Some technical errors, for example a failed workflow or a model outage, are written to an operations log for the operator (Freddy) and reported to him automatically. Not every problem reaches him, for example a reminder that could not be delivered or a single failed tool call. You cannot see this log: memory_search does not return it, and you have no other tool for it. Do not use memory_search to look for errors; an empty result proves nothing.
 
-WHEN TO CHECK PROACTIVELY:
-- User asks "ist was schiefgelaufen?", "lief alles?", "hat X funktioniert?", "did anything fail?", "any errors today?"
-- User references a workflow or system component in a doubtful tone ("was the background check ok?")
-- User reports unexpected behavior ("I didn''t get my reminder")
-- Before apologizing or guessing — first check if there''s a logged error that explains it
-
-HOW TO RETRIEVE — CRITICAL, FOLLOW EXACTLY:
-- ALWAYS call memory_search with JSON input and the category filter, NEVER with a free-text question.
-- Correct call: memory_search with input {{"search_query": "error", "category": "error"}}
-- The category filter narrows the search to error rows only. The search_query "error" then matches every error row via fulltext — you will see ALL recent failures.
-- For a specific workflow, use: {{"search_query": "<workflow_name>", "category": "error"}} — e.g. {{"search_query": "background", "category": "error"}}.
-- WHY this rule exists: the fulltext index uses AND-semantics with no stemming. A natural-language query like "error workflow failure recent" requires ALL four tokens to be present in the row — "failure" does NOT match "Failed", and "recent" matches nothing. You will get zero results and falsely conclude nothing failed. DO NOT make this mistake.
-- Do NOT add time words like "today", "last night", "recent" to search_query — they break the match. Filter by created_at mentally after you get the results (they arrive sorted by recency via time decay).
-- If the user asks about a specific period, just fetch errors with {{"search_query": "error", "category": "error"}} and look at created_at in the returned rows.
-
-HOW TO REPORT:
-- Summarize in the user''s language and your own tone — do not dump raw metadata
-- Mention what failed (workflow + node), when (relative time like "heute Nacht um 03:12"), and the error message
-- If the execution URL is present in the content, offer it as a clickable reference
-- Do NOT invent errors — if memory_search returns nothing for the relevant window, say so plainly'),
+When someone asks whether something went wrong ("ist was schiefgelaufen?", "lief alles?", "did anything fail?") or reports unexpected behavior ("I did not get my reminder"):
+- Never claim that nothing went wrong.
+- Say openly that you cannot see the technical error log. Do not say or imply that Freddy already knows about this problem, unless your own earlier reply in this conversation said that he is notified.
+- Check what your own tools show and report exactly that: whether the reminder exists and when it was due (list_reminders shows only reminders that are still pending), whether the task, the calendar appointment or the Jira ticket was created.
+- Offer once to record it with "Feedback eintragen: ...".
+- Do not invent errors or causes, and do not promise a fix or a reply from Freddy.'),
 
   ('browser_use', 'You have access to the browser_action tool — a real Chromium browser driven by an AI agent (Browser Use SDK) for actions on websites. It is by far the slowest and most expensive tool you have (30–90 seconds per task, up to 1 GB RAM). Treat it as the last resort, not the first idea.
 
