@@ -216,6 +216,31 @@ Datenbank geprueft: am 12.10.2026 um 17:30 haette sie fuer den Kalender
 gemeldet, am 14.10.2026 um 11:00 fuer Mail, SharePoint und Jira. Teams-Bote und
 Google hatten keine Aufrufe; das deckt nur der Rauchtest ab.
 
+Dazu die Abbruchregel (Runde 11 Teilrunde 2, 24.10.2026). Anlass: am
+21.10.2026 lehnte die Anthropic-API eine gute halbe Stunde lang jeden
+Modellaufruf ab, sechs Anfragen bekamen eine Ersatzantwort mit der Bitte, es
+gleich noch einmal zu probieren, und niemand erfuhr davon: der Knoten
+`Abbruch-Antwort` faengt den Fehlerausgang des AI Agent ab, der
+Fehler-Workflow springt dann nicht an. Seitdem vermerkt der Knoten jeden
+Abbruch durch einen Modellfehler in `memory_long` (scope `betrieb`, category
+`error`, `metadata.alarm = agent_abbruch`, Ablauf nach 30 Tagen) und sagt der
+Person, dass Freddy automatisch benachrichtigt wird. Diese Regel haelt das
+ein: steht in den letzten 15 Minuten ein solcher Vermerk, geht eine Meldung an
+Freddy (Zahl, vermutete Art mit einem Hinweis, wo zu suchen ist, letzter
+Grund; nie Person oder Sitzung), hoechstens eine je Stunde, solange Abbrueche
+kommen; kam eine Stunde lang keiner mehr, einmal die Entwarnung. Zum
+Anthropic-Konto schickt die Meldung nur bei den Arten `guthaben` und
+`anfrage_oder_guthaben`: am Knoten kommt zu einem HTTP 400 nur die n8n-Meldung
+"Bad request - please check your parameters" an, und die war am 21.10. das
+leere Guthaben, kommt aber genauso nach einem Modellwechsel, mit Denken am
+Claude-Knoten oder bei zu langem Prompt. 15 statt 10 Minuten, weil der Timer alle
+600 s plus bis zu 30 s Genauigkeit laeuft (im Journal 600 bis 630 s zwischen
+zwei Laeufen): ein Fenster von genau 10 Minuten verloere Vermerke. Die Meldung
+kommt trotzdem spaetestens rund 10,5 Minuten nach dem Abbruch. Die Regel wirkt
+erst, wenn der Server-Checkout `/root/n8n-claw` diesen Stand traegt (der Timer
+startet das Skript von dort); ohne Vermerke bleibt sie still und darf deshalb
+vor dem Agenten live sein.
+
 | Variable | Vorgabe | Zweck |
 |---|---|---|
 | `CLAW_WERKZEUG_SCHWELLE` | `3` | Fehler seit dem letzten Erfolg |
@@ -225,9 +250,29 @@ Google hatten keine Aufrufe; das deckt nur der Rauchtest ab.
 | `CLAW_WERKZEUG_MELDE_ABSTAND_S` | `21600` | Drosselung je Befund |
 | `CLAW_WERKZEUG_ZUSTAND` | `/var/lib/claw-wacht/werkzeuge` | Zeitstempel je gemeldetem Befund |
 | `CLAW_WERKZEUG_LOG` | `/var/log/claw-werkzeugwacht.log` | Log |
+| `CLAW_ABBRUCH_FENSTER_MIN` | `15` | Abbruchregel: Vermerke der letzten Minuten |
+| `CLAW_ABBRUCH_RUHE_MIN` | `60` | Abbruchregel: Entwarnung nach so vielen Minuten ohne Vermerk |
+| `CLAW_ABBRUCH_MELDE_ABSTAND_S` | `3600` | Abbruchregel: hoechstens eine Meldung in diesem Abstand |
 
 Tests: `bash ops/claw-werkzeugwacht.test.sh` (erfundene `docker`- und
 `curl`-Befehle, kein Server).
+
+Probe der Abbruchregel nach dem Nachziehen, in
+`docker exec -it n8n-claw-db psql -U postgres`:
+
+```sql
+insert into memory_long (content, category, importance, scope, source, expires_at, metadata)
+values ('Probe Abbruchregel', 'error', 1, 'betrieb', 'probe', now() + interval '1 day',
+        '{"alarm": "agent_abbruch", "fehlerart": "probe", "grund": "Probe"}');
+```
+
+Beim naechsten Lauf (hoechstens rund 10,5 Minuten) kommt die Meldung, im Log
+steht `Telegram zugestellt`. Danach die Zeile loeschen
+(`delete from memory_long where source = 'probe' and scope = 'betrieb';`).
+Die Entwarnung folgt beim naechsten Lauf nach dem Loeschen (hoechstens rund
+10,5 Minuten), denn die Regel zaehlt nur Vermerke, die noch da sind; ohne
+Loeschen kaeme sie 60 Minuten nach dem letzten Vermerk. Danach ist der Zustand
+`agent-abbruch` unter `/var/lib/claw-wacht/werkzeuge` wieder weg.
 
 ## rauchtest.py: nach JEDEM n8n-Update
 

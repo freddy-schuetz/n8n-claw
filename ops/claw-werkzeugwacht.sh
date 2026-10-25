@@ -27,6 +27,20 @@
 # Je Befund hoechstens eine Meldung in MELDE_ABSTAND_S; kommen bei einem
 # gemeldeten Server wieder Erfolge, folgt einmal die Entwarnung.
 #
+# Dazu die Abbruchregel (Runde 11 Teilrunde 2, 24.10.2026): der Agent vermerkt
+# jeden Abbruch durch einen Modellfehler (Guthaben, Schluessel, Ueberlast oder
+# ein anderer Fehlerausgang des AI Agent) in memory_long mit scope betrieb und
+# metadata alarm = agent_abbruch und sagt der Person, dass Freddy automatisch
+# benachrichtigt wird. Steht in den letzten ABBRUCH_FENSTER_MIN Minuten ein
+# solcher Vermerk, geht eine Meldung raus, hoechstens eine in
+# ABBRUCH_ABSTAND_S; kam ABBRUCH_RUHE_MIN Minuten lang keiner mehr, einmal die
+# Entwarnung. Das Fenster ist laenger als der Takt des Timers (600 s plus bis
+# 30 s Genauigkeit, im Journal 600 bis 630 s), sonst fiele ein Vermerk kurz
+# nach einem Lauf durch die Luecke. Die Meldung nennt Zahl, vermutete Art mit
+# einem Hinweis, wo zu suchen ist, und den letzten Grund, nie Person oder
+# Sitzung. Gezaehlt wird nur, was noch in der Tabelle steht: nach dem Loeschen
+# einer Probezeile kommt die Entwarnung schon beim naechsten Lauf.
+#
 # Was sie NICHT tut: irgendetwas aendern. Sie liest eine Tabelle und schickt
 # Nachrichten, sie startet nichts und fasst keinen Container an. Ist die
 # Datenbank nicht erreichbar, meldet sie nichts: das ist der Fall des
@@ -46,6 +60,9 @@ SCHWELLE="${CLAW_WERKZEUG_SCHWELLE:-3}"
 SCHWELLE_SELTEN="${CLAW_WERKZEUG_SCHWELLE_SELTEN:-2}"
 SCHWELLE_LEER="${CLAW_WERKZEUG_SCHWELLE_LEER:-3}"
 MELDE_ABSTAND_S="${CLAW_WERKZEUG_MELDE_ABSTAND_S:-21600}"
+ABBRUCH_FENSTER_MIN="${CLAW_ABBRUCH_FENSTER_MIN:-15}"
+ABBRUCH_RUHE_MIN="${CLAW_ABBRUCH_RUHE_MIN:-60}"
+ABBRUCH_ABSTAND_S="${CLAW_ABBRUCH_MELDE_ABSTAND_S:-3600}"
 DB_CONTAINER="${CLAW_DB_CONTAINER:-n8n-claw-db}"
 PAUSE_DATEI="${CLAW_PAUSE_DATEI:-$PROJEKT/ops/PAUSE}"
 TELEGRAM_CHAT_ID_VORGABE="${CLAW_TELEGRAM_CHAT_ID:-}"
@@ -72,7 +89,8 @@ log_kuerzen() {
 }
 
 # Die Zahlen landen in der Abfrage und in Vergleichen: nur Ziffern zulassen.
-for _wert in "$FENSTER_MIN" "$SCHWELLE" "$SCHWELLE_SELTEN" "$SCHWELLE_LEER" "$MELDE_ABSTAND_S" "$LOG_ZEILEN"; do
+for _wert in "$FENSTER_MIN" "$SCHWELLE" "$SCHWELLE_SELTEN" "$SCHWELLE_LEER" "$MELDE_ABSTAND_S" "$LOG_ZEILEN" \
+    "$ABBRUCH_FENSTER_MIN" "$ABBRUCH_RUHE_MIN" "$ABBRUCH_ABSTAND_S"; do
   case "$_wert" in ''|*[!0-9]*) printf 'ungueltige Zahl in der Konfiguration: %s\n' "$_wert" >&2; exit 1 ;; esac
 done
 
@@ -121,12 +139,15 @@ senden() {
 datei_fuer() { printf '%s/%s' "$ZUSTAND_DIR" "$(printf '%s' "$1" | tr -c 'a-z0-9-' '_' | cut -c1-80)"; }
 
 # Gemeldet und noch innerhalb des Abstands? Dann 0 (nicht erneut melden).
+# $2 ist ein eigener Abstand (Abbruchregel), sonst MELDE_ABSTAND_S.
 gedrosselt() {
-  local zuletzt
+  local zuletzt abstand="${2:-$MELDE_ABSTAND_S}"
   zuletzt=$(cat "$1" 2>/dev/null || echo 0)
   case "$zuletzt" in ''|*[!0-9]*) zuletzt=0 ;; esac
-  [ $((jetzt - zuletzt)) -lt "$MELDE_ABSTAND_S" ]
+  [ $((jetzt - zuletzt)) -lt "$abstand" ]
 }
+
+zahl() { case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac; return 0; }
 
 abfrage() { docker exec "$DB_CONTAINER" psql -U postgres -At -F $'\t' -c "$1" 2>&1; }
 
@@ -195,6 +216,58 @@ if [ "$rc" -eq 0 ] && case "${leer:-}" in ''|*[!0-9]*) false ;; *) true ;; esac;
   fi
 else
   log "Abfrage leere Aufrufe gescheitert (rc=$rc): $(printf '%s' "$leer" | head -1 | cut -c1-120)"
+fi
+
+# Abbruchregel (siehe Kopf). Gelesen werden nur Zahlen und die zwei
+# Hinweisfelder, nie der Vermerktext (er nennt Person und Sitzung). Die Art
+# behaelt nur Kleinbuchstaben und Unterstrich, der Grund keinen Zeilenumbruch
+# und keinen Tab. Leere Felder kommen als "-": read mit IFS Tab legt
+# aufeinanderfolgende Tabs zusammen, ein leeres Feld in der Mitte verschoebe
+# sonst die Spalten.
+# Hinweis je Art (die Art setzt der Knoten Abbruch-Antwort): zum
+# Anthropic-Konto schicken nur guthaben und anfrage_oder_guthaben. Die blosse
+# n8n-Meldung zu HTTP 400 kommt auch nach einem Modellwechsel, mit Denken am
+# Claude-Knoten oder bei zu langem Prompt.
+abbruch_hinweis() {
+  case "$1" in
+    guthaben) printf '%s' 'Vermutlich ist das Guthaben beim Anbieter leer; bitte das Anthropic-Konto pruefen.' ;;
+    anfrage_oder_guthaben) printf '%s' 'HTTP 400 vom Anbieter: leeres Guthaben oder ungueltige Anfrage (Modellwechsel, Denken am Claude-Knoten, Promptlaenge); erst das Anthropic-Konto, dann den letzten Umbau pruefen.' ;;
+    schluessel) printf '%s' 'Vermutlich ist der API-Schluessel des Claude-Knotens ungueltig; bitte den Zugang pruefen.' ;;
+    ueberlast) printf '%s' 'Vermutlich Ueberlast oder Stoerung beim Anbieter, meist voruebergehend.' ;;
+    *) printf '%s' 'Art nicht erkannt (Netz, Werkzeug oder anderes); bitte die Ausfuehrung in n8n ansehen.' ;;
+  esac
+}
+ABBRUCH_SPANNE_MIN=$ABBRUCH_RUHE_MIN
+if [ "$ABBRUCH_FENSTER_MIN" -gt "$ABBRUCH_SPANNE_MIN" ]; then ABBRUCH_SPANNE_MIN=$ABBRUCH_FENSTER_MIN; fi
+SQL_ABBRUCH="select count(*) filter (where created_at > now() - interval '$ABBRUCH_FENSTER_MIN minutes'),
+  count(*) filter (where created_at > now() - interval '$ABBRUCH_RUHE_MIN minutes'),
+  coalesce(nullif(left(regexp_replace(coalesce((array_agg(coalesce(metadata->>'fehlerart', '') order by id desc))[1], ''), '[^a-z_]', '', 'g'), 30), ''), '-'),
+  coalesce(nullif(left(regexp_replace(coalesce((array_agg(coalesce(metadata->>'grund', '') order by id desc))[1], ''), '[[:space:]]+', ' ', 'g'), 150), ''), '-')
+  from memory_long
+  where created_at > now() - interval '$ABBRUCH_SPANNE_MIN minutes'
+    and scope = 'betrieb' and category = 'error' and metadata->>'alarm' = 'agent_abbruch'"
+abbruch=$(abfrage "$SQL_ABBRUCH")
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  log "Abfrage Agent-Abbrueche gescheitert (rc=$rc): $(printf '%s' "$abbruch" | head -1 | cut -c1-120)"
+else
+  IFS=$'\t' read -r ab_neu ab_ruhe ab_art ab_grund <<< "$abbruch"
+  if ! zahl "${ab_neu:-}" || ! zahl "${ab_ruhe:-}"; then
+    log "Abfrage Agent-Abbrueche unlesbar: $(printf '%s' "$abbruch" | head -1 | cut -c1-120)"
+  else
+    zustand=$(datei_fuer "agent-abbruch")
+    if [ "$ab_neu" -gt 0 ]; then
+      if gedrosselt "$zustand" "$ABBRUCH_ABSTAND_S"; then
+        printf '%s Agent-Abbrueche: weiter %s, schon gemeldet\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$ab_neu"
+      elif senden "Rupert-Werkzeugwache: Agent-Abbrueche durch Modellfehler, $ab_neu in den letzten $ABBRUCH_FENSTER_MIN Minuten, $ab_ruhe in den letzten $ABBRUCH_RUHE_MIN Minuten. Art (vermutet): $ab_art. Letzter Grund: $ab_grund. $(abbruch_hinweis "$ab_art") Im Gespraech hat Rupert den Betroffenen gesagt, dass du benachrichtigt wirst."; then
+        printf '%s' "$jetzt" > "$zustand" 2>/dev/null
+      fi
+    elif [ "$ab_ruhe" -eq 0 ] && [ -f "$zustand" ]; then
+      if senden "Rupert-Werkzeugwache: seit $ABBRUCH_RUHE_MIN Minuten kein Agent-Abbruch durch Modellfehler mehr. Entwarnung."; then
+        rm -f "$zustand" 2>/dev/null
+      fi
+    fi
+  fi
 fi
 
 log_kuerzen
